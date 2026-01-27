@@ -1,0 +1,167 @@
+syntax = "proto3";
+
+package example;
+
+option go_package = "github.com/kamalyes/protoc-go-inject-tag/examples/pb";
+
+// ==================== 嵌套结构示例 ====================
+
+// 地址信息
+// [EN] Address information
+message Address {
+  string province = 1;  // 省份 | [EN] Province // @gotags: json:"province" validate:"required,min=2,max=50" gorm:"type:varchar(50);not null"
+  string city = 2;      // 城市 | [EN] City // @gotags: json:"city" validate:"required,min=2,max=50" gorm:"type:varchar(50);not null"
+  string street = 3;    // 街道地址 | [EN] Street address // @gotags: json:"street" validate:"required,min=5,max=200" gorm:"type:varchar(200);not null"
+  string postal_code = 4; // 邮政编码 | [EN] Postal code // @gotags: json:"postal_code" validate:"omitempty,len=6,numeric" gorm:"type:varchar(10)"
+  bool is_default = 5;  // 是否默认地址 | [EN] Is default address // @gotags: json:"is_default" gorm:"type:boolean;default:false"
+}
+
+// 用户配置
+// [EN] User settings
+message UserSettings {
+  string language = 1;  // 语言 | [EN] Language // @gotags: json:"language" validate:"oneof=zh-CN en-US ja-JP" gorm:"type:varchar(10);default:zh-CN"
+  string theme = 2;     // 主题 | [EN] Theme // @gotags: json:"theme" validate:"oneof=light dark auto" gorm:"type:varchar(10);default:light"
+  bool notification_enabled = 3; // 是否启用通知 | [EN] Notification enabled // @gotags: json:"notification_enabled" gorm:"type:boolean;default:true"
+}
+
+// ==================== 完整的用户实体（涵盖所有标签类型）====================
+
+// 用户信息
+// [EN] User information
+message User {
+  string id = 1;        // 用户ID | [EN] User ID // @gotags: json:"id" validate:"required,uuid" gorm:"primaryKey;type:uuid;comment:用户ID" bson:"_id,omitempty"
+  string username = 2;  // 用户名 | [EN] Username // @gotags: json:"username" validate:"required,min=3,max=50,alphanum" gorm:"uniqueIndex;type:varchar(50);not null;comment:用户名" bson:"username"
+  string email = 3;     // 邮箱 | [EN] Email // @gotags: json:"email" validate:"required,email" gorm:"uniqueIndex;type:varchar(100);not null;comment:邮箱" bson:"email"
+  string password = 4;  // 密码 | [EN] Password // @gotags: json:"-" validate:"required,min=8,max=100" gorm:"type:varchar(255);not null;comment:密码" bson:"password"
+  string phone = 5;     // 手机号 | [EN] Phone // @gotags: json:"phone" validate:"omitempty,len=11,numeric" gorm:"index;type:varchar(20);comment:手机号" bson:"phone,omitempty"
+  int32 age = 6;        // 年龄 | [EN] Age // @gotags: json:"age,omitempty" validate:"omitempty,gte=0,lte=150" gorm:"type:int;comment:年龄" bson:"age,omitempty"
+  string gender = 7;    // 性别 | [EN] Gender // @gotags: json:"gender" validate:"omitempty,oneof=male female other" gorm:"type:varchar(10);comment:性别" bson:"gender,omitempty"
+  string status = 8;    // 状态 | [EN] Status // @gotags: json:"status" validate:"required,oneof=active inactive suspended" gorm:"type:varchar(20);default:active;index;comment:状态" bson:"status"
+  
+  repeated Address addresses = 9; // 地址列表 | [EN] Address list // @gotags: json:"addresses" validate:"omitempty,dive" gorm:"foreignKey:UserID" bson:"addresses,omitempty"
+  UserSettings settings = 10;     // 用户设置 | [EN] User settings // @gotags: json:"settings" validate:"omitempty" gorm:"embedded;embeddedPrefix:settings_" bson:"settings,omitempty"
+  
+  map<string, string> metadata = 11; // 元数据 | [EN] Metadata // @gotags: json:"metadata,omitempty" gorm:"type:jsonb;comment:元数据" bson:"metadata,omitempty"
+  repeated string roles = 12;        // 角色列表 | [EN] Roles // @gotags: json:"roles" validate:"omitempty,dive,oneof=admin user guest" gorm:"type:text[];comment:角色" bson:"roles,omitempty"
+  string avatar_url = 13;            // 头像URL | [EN] Avatar URL // @gotags: json:"avatar_url,omitempty" validate:"omitempty,url" gorm:"type:varchar(500);comment:头像" bson:"avatar_url,omitempty"
+  string bio = 14;                   // 个人简介 | [EN] Bio // @gotags: json:"bio,omitempty" validate:"omitempty,max=500" gorm:"type:text;comment:简介" bson:"bio,omitempty"
+  double balance = 15;               // 账户余额 | [EN] Balance // @gotags: json:"balance" validate:"gte=0" gorm:"type:decimal(10,2);default:0;comment:余额" bson:"balance"
+  bool is_verified = 16;             // 是否已验证 | [EN] Is verified // @gotags: json:"is_verified" gorm:"type:boolean;default:false;comment:已验证" bson:"is_verified"
+}
+
+// ==================== CRUD 操作 ====================
+
+// 创建用户请求
+// [EN] Create user request
+message CreateUserRequest {
+  string username = 1; // 用户名 | [EN] Username // @gotags: validate:"required,min=3,max=50,alphanum"
+  string email = 2;    // 邮箱 | [EN] Email // @gotags: validate:"required,email"
+  string password = 3; // 密码 | [EN] Password // @gotags: validate:"required,min=8,max=100"
+  string phone = 4;    // 手机号 | [EN] Phone // @gotags: validate:"omitempty,len=11,numeric"
+  int32 age = 5;       // 年龄 | [EN] Age // @gotags: validate:"omitempty,gte=0,lte=150"
+  
+  repeated Address addresses = 6; // 地址列表 | [EN] Address list // @gotags: validate:"omitempty,dive"
+  UserSettings settings = 7;      // 用户设置 | [EN] User settings // @gotags: validate:"omitempty"
+}
+
+// 创建用户响应
+// [EN] Create user response
+message CreateUserResponse {
+  User user = 1;      // 用户信息 | [EN] User information // @gotags: json:"user"
+  string message = 2; // 响应消息 | [EN] Response message // @gotags: json:"message"
+}
+
+// 查询用户请求
+// [EN] Get user request
+message GetUserRequest {
+  string id = 1; // 用户ID | [EN] User ID // @gotags: validate:"required,uuid"
+}
+
+// 查询用户响应
+// [EN] Get user response
+message GetUserResponse {
+  User user = 1; // 用户信息 | [EN] User information // @gotags: json:"user"
+}
+
+// 用户列表请求
+// [EN] List users request
+message ListUsersRequest {
+  int32 page_size = 1;   // 每页数量 | [EN] Page size // @gotags: validate:"omitempty,gte=1,lte=100"
+  int32 page_num = 2;    // 页码 | [EN] Page number // @gotags: validate:"omitempty,gte=1"
+  string status = 3;     // 状态过滤 | [EN] Status filter // @gotags: validate:"omitempty,oneof=active inactive suspended"
+  string keyword = 4;    // 搜索关键词 | [EN] Search keyword // @gotags: validate:"omitempty,min=1,max=50"
+  string sort_by = 5;    // 排序字段 | [EN] Sort by // @gotags: validate:"omitempty,oneof=created_at updated_at username"
+  string sort_order = 6; // 排序方向 | [EN] Sort order // @gotags: validate:"omitempty,oneof=asc desc"
+}
+
+// 用户列表响应
+// [EN] List users response
+message ListUsersResponse {
+  repeated User users = 1; // 用户列表 | [EN] User list // @gotags: json:"users"
+  int64 total = 2;         // 总数 | [EN] Total count // @gotags: json:"total"
+  int32 page_num = 3;      // 当前页码 | [EN] Current page // @gotags: json:"page_num"
+  int32 page_size = 4;     // 每页数量 | [EN] Page size // @gotags: json:"page_size"
+}
+
+// 更新用户请求
+// [EN] Update user request
+message UpdateUserRequest {
+  string id = 1;         // 用户ID | [EN] User ID // @gotags: validate:"required,uuid"
+  string username = 2;   // 用户名 | [EN] Username // @gotags: validate:"omitempty,min=3,max=50,alphanum"
+  string email = 3;      // 邮箱 | [EN] Email // @gotags: validate:"omitempty,email"
+  string phone = 4;      // 手机号 | [EN] Phone // @gotags: validate:"omitempty,len=11,numeric"
+  int32 age = 5;         // 年龄 | [EN] Age // @gotags: validate:"omitempty,gte=0,lte=150"
+  string avatar_url = 6; // 头像URL | [EN] Avatar URL // @gotags: validate:"omitempty,url"
+  string bio = 7;        // 个人简介 | [EN] Bio // @gotags: validate:"omitempty,max=500"
+  
+  UserSettings settings = 8; // 用户设置 | [EN] User settings // @gotags: validate:"omitempty"
+}
+
+// 更新用户响应
+// [EN] Update user response
+message UpdateUserResponse {
+  User user = 1;      // 用户信息 | [EN] User information // @gotags: json:"user"
+  string message = 2; // 响应消息 | [EN] Response message // @gotags: json:"message"
+}
+
+// 删除用户请求
+// [EN] Delete user request
+message DeleteUserRequest {
+  string id = 1;        // 用户ID | [EN] User ID // @gotags: validate:"required,uuid"
+  bool hard_delete = 2; // 是否硬删除 | [EN] Hard delete // @gotags: validate:"omitempty"
+}
+
+// 删除用户响应
+// [EN] Delete user response
+message DeleteUserResponse {
+  string message = 1; // 响应消息 | [EN] Response message // @gotags: json:"message"
+}
+
+// 批量操作请求
+// [EN] Batch operation request
+message BatchOperationRequest {
+  repeated string ids = 1; // 用户ID列表 | [EN] User ID list // @gotags: validate:"required,min=1,dive,uuid"
+  string operation = 2;    // 操作类型 | [EN] Operation type // @gotags: validate:"required,oneof=delete activate suspend"
+}
+
+// 批量操作响应
+// [EN] Batch operation response
+message BatchOperationResponse {
+  int32 affected_count = 1; // 影响数量 | [EN] Affected count // @gotags: json:"affected_count"
+  string message = 2;       // 响应消息 | [EN] Response message // @gotags: json:"message"
+}
+
+// 修改密码请求
+// [EN] Change password request
+message ChangePasswordRequest {
+  string user_id = 1;          // 用户ID | [EN] User ID // @gotags: validate:"required,uuid"
+  string old_password = 2;     // 旧密码 | [EN] Old password // @gotags: validate:"required,min=8,max=100"
+  string new_password = 3;     // 新密码 | [EN] New password // @gotags: validate:"required,min=8,max=100"
+  string confirm_password = 4; // 确认密码 | [EN] Confirm password // @gotags: validate:"required,eqfield=NewPassword"
+}
+
+// 修改密码响应
+// [EN] Change password response
+message ChangePasswordResponse {
+  string message = 1; // 响应消息 | [EN] Response message // @gotags: json:"message"
+}

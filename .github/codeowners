@@ -1,0 +1,5 @@
+# Global owners
+* @kamalyes/maintainers
+
+# Workflow files require explicit review
+.github/workflows/test.yml @kamalyes

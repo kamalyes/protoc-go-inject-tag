@@ -1,0 +1,62 @@
+name: Code Quality Check
+
+on:
+  workflow_call:
+    inputs:
+      go-version:
+        description: 'Go version'
+        required: true
+        type: string
+      gotestsum-version:
+        description: 'gotestsum version'
+        required: true
+        type: string
+
+jobs:
+  code-quality:
+    name: 🛠️ Code Quality Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: ⬇️ Checkout Repository
+        uses: actions/checkout@v6
+
+      - name: 🛠️ Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ inputs.go-version }}
+          cache: true
+
+      - name: 🧹 Format Check
+        run: |
+          if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then
+            echo "以下文件需要格式化:"
+            gofmt -s -l .
+            exit 1
+          fi
+
+      - name: 🔍 Vet Check
+        run: go vet ./...
+
+      - name: 📦 Install gotestsum
+        run: go install gotest.tools/gotestsum@${{ inputs.gotestsum-version }}
+
+      - name: 🧪 Test with Coverage
+        run: gotestsum -f testname -- ./... -race -count=1 -coverprofile=coverage -covermode=atomic -shuffle=on
+        continue-on-error: true
+
+      - name: 📊 Generate Coverage Report
+        if: always()
+        run: |
+          if [ -f coverage ]; then
+            go tool cover -html=coverage -o coverage.html
+          fi
+
+      - name: 📤 Upload Coverage
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: |
+            coverage
+            coverage.html
+          retention-days: 7

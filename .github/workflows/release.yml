@@ -1,0 +1,167 @@
+name: Build & Release Binaries
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'   # 仅在打 tag 时触发
+  workflow_dispatch:
+    inputs:
+      go-version:
+        description: 'Go version'
+        required: false
+        default: '1.21'
+      goproxy:
+        description: 'GOPROXY (可选)'
+        required: false
+        default: 'https://proxy.golang.org,direct'
+      goprivate:
+        description: 'GOPRIVATE (可选)'
+        required: false
+        default: ''
+      upx-version:
+        description: 'UPX version (可选)'
+        required: false
+        default: '5.1.0'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      UPX_VERSION: ${{ github.event.inputs.upx-version || '5.1.0' }}
+      GO_VERSION: ${{ github.event.inputs.go-version || '1.21' }}
+      GOPROXY: ${{ github.event.inputs.goproxy || 'https://proxy.golang.org,direct' }}
+      GOPRIVATE: ${{ github.event.inputs.goprivate || '' }}
+    strategy:
+      matrix:
+        include:
+          - goos: windows
+            goarch: amd64
+          - goos: windows
+            goarch: arm64
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: linux
+            goarch: 386
+          - goos: linux
+            goarch: ppc64le
+          - goos: linux
+            goarch: s390x
+          - goos: linux
+            goarch: mips64
+          - goos: linux
+            goarch: mips64le
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: freebsd
+            goarch: amd64
+          - goos: freebsd
+            goarch: arm64
+          - goos: openbsd
+            goarch: amd64
+          - goos: openbsd
+            goarch: arm64
+          - goos: netbsd
+            goarch: amd64
+          - goos: netbsd
+            goarch: arm64
+          - goos: dragonfly
+            goarch: amd64
+          - goos: solaris
+            goarch: amd64
+    steps:
+
+      - name: ⬇️ Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🛠️ Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: 📥 Download Dependencies
+        run: |
+          export GOPROXY="${{ env.GOPROXY }}"
+          export GOPRIVATE="${{ env.GOPRIVATE }}"
+          go env
+          go mod download
+
+
+      - name: Build binary
+        run: |
+          mkdir -p dist
+          EXT=""
+          if [ "${{ matrix.goos }}" = "windows" ]; then EXT=".exe"; fi
+          OUT=dist/protoc-go-inject-tag-${{ matrix.goos }}-${{ matrix.goarch }}$EXT
+          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -v -trimpath -ldflags="-s -w" -o "$OUT" main.go
+
+      - name: ♻️ UPX Cache
+        id: upx-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/upx
+            ./upxbin
+            ./upx-*
+          key: upx-${{ matrix.goos }}-${{ matrix.goarch }}-${{ env.UPX_VERSION }}
+
+      - name: Download and install UPX
+        run: |
+          set -e
+          mkdir -p ~/.cache/upx
+          if [[ "${{ matrix.goos }}" == "windows" ]]; then
+            if [ ! -f ~/.cache/upx/upx-${{ env.UPX_VERSION }}-win64/upx.exe ]; then
+              curl -L -o upx.zip "https://github.com/upx/upx/releases/download/v${{ env.UPX_VERSION }}/upx-${{ env.UPX_VERSION }}-win64.zip"
+              unzip -o upx.zip -d ~/.cache/upx/
+            fi
+            export PATH="$HOME/.cache/upx/upx-${{ env.UPX_VERSION }}-win64:$PATH"
+          elif [[ "${{ matrix.goos }}" == "darwin" ]]; then
+            echo "UPX 官方已不再提供 macOS 预编译包，跳过 UPX 安装"
+          else
+            if [ ! -d ~/.cache/upx/upx-${{ env.UPX_VERSION }}-amd64_linux ]; then
+              curl -L -o upx.tar.xz "https://github.com/upx/upx/releases/download/v${{ env.UPX_VERSION }}/upx-${{ env.UPX_VERSION }}-amd64_linux.tar.xz"
+              tar -xf upx.tar.xz -C ~/.cache/upx/
+            fi
+            export PATH="$HOME/.cache/upx/upx-${{ env.UPX_VERSION }}-amd64_linux:$PATH"
+          fi
+          upx --version || echo "UPX 安装失败，但不会阻塞流程"
+        shell: bash
+
+      - name: UPX compress binary (optional)
+        run: |
+          EXT=""
+          if [ "${{ matrix.goos }}" = "windows" ]; then EXT=".exe"; fi
+          OUT=dist/protoc-go-inject-tag-${{ matrix.goos }}-${{ matrix.goarch }}$EXT
+          if command -v upx &> /dev/null; then
+            echo "🗜️  使用 UPX 压缩 $OUT ..."
+            upx --best --lzma "$OUT" || upx --best "$OUT" || echo "UPX 压缩失败，跳过"
+          else
+            echo "未检测到 UPX,跳过压缩"
+          fi
+        shell: bash
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: protoc-go-inject-tag-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/protoc-go-inject-tag-${{ matrix.goos }}-${{ matrix.goarch }}*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/**/protoc-go-inject-tag-*

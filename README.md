@@ -1,113 +1,152 @@
 # protoc-go-inject-tag
 
-[![Build Status](https://www.travis-ci.com/favadi/protoc-go-inject-tag.svg?branch=master)](https://www.travis-ci.com/favadi/protoc-go-inject-tag)
-[![Go Report Card](https://goreportcard.com/badge/github.com/favadi/protoc-go-inject-tag)](https://goreportcard.com/report/github.com/favadi/protoc-go-inject-tag)
-[![Coverage Status](https://coveralls.io/repos/github/favadi/protoc-go-inject-tag/badge.svg)](https://coveralls.io/github/favadi/protoc-go-inject-tag)
+从 proto 文件的 `@gotags` 注释中提取标签，注入到生成的 `.pb.go` 文件中,支持 json、validate、gorm、bson 等所有 Go 标签类型
 
-## Why?
+> **注意：** 此工具会修改 protoc 生成的 `.pb.go` 文件（带有 `DO NOT EDIT` 警告）；这是为了在 protobuf 生成的代码中添加自定义标签，用于验证、ORM 等场景；每次重新生成 `.pb.go` 文件后需要重新运行此工具
 
-Golang [protobuf](https://github.com/golang/protobuf) doesn't support
-[custom tags to generated structs](https://github.com/golang/protobuf/issues/52).
-This tool injects custom tags to generated protobuf files, which is commonly
-used for validating fields, omitting fields from JSON data, etc.
+## 特性
 
-## Install
+- ✅ 自动清理多余的 `@gotags` 注释
+- ✅ 自动格式化生成的代码
+- ✅ 支持批量处理和递归匹配（`**`）
+- ✅ 试运行模式（dry-run）
+- ✅ Windows 路径兼容
 
-- [protobuf version 3](https://github.com/google/protobuf)
+## 安装
 
-  For OS X:
+```bash
+git clone https://github.com/kamalyes/protoc-go-inject-tag.git
+cd protoc-go-inject-tag
+go build -o protoc-go-inject-tag.exe main.go  # Windows
+go build -o protoc-go-inject-tag main.go      # Linux/Mac
 
-  ```console
-  brew install protobuf
-  ```
-
-- go support for protobuf: `go get -u github.com/golang/protobuf/{proto,protoc-gen-go}`
-
-- `go install github.com/favadi/protoc-go-inject-tag@latest` or download the
-  binaries from the releases page.
-
-## Usage
-
-```console
-$ protoc-go-inject-tag -h
-Usage of protoc-go-inject-tag:
-  -XXX_skip string
-        tags that should be skipped (applies 'tag:"-"') for unknown fields (deprecated since protoc-gen-go v1.4.0)
-  -input string
-        pattern to match input file(s)
-  -verbose
-        verbose logging
-  -remove_tag_comment
-        removes tag comments from the generated file(s)
+# 或安装到 GOPATH/bin
+go install
 ```
 
-Add a comment with the following syntax before fields, and these will be
-injected into the resulting `.pb.go` file. This can be specified above the
-field, or trailing the field.
+## 快速开始
 
-```proto
-// @gotags: custom_tag:"custom_value"
+```bash
+# 1. 生成 protobuf 代码
+protoc --go_out=. --go_opt=paths=source_relative example.proto
+
+# 2. 注入标签（修改生成的 .pb.go 文件）
+protoc-go-inject-tag -i example.pb.go -v
 ```
 
-## Example
+> **工作流提示：** 建议将标签注入步骤集成到构建脚本中，这样每次运行 `protoc` 后自动注入标签
 
-```proto
-// file: test.proto
-syntax = "proto3";
+## Proto 标签示例
 
-package pb;
-option go_package = "/pb";
-
-message IP {
-  // @gotags: valid:"ip"
-  string Address = 1;
-
-  // Or:
-  string MAC = 2; // @gotags: validate:"omitempty"
+```protobuf
+// 地址信息
+// [EN] Address information
+message Address {
+  string province = 1;  // 省份 | [EN] Province // @gotags: json:"province" validate:"required,min=2,max=50" gorm:"type:varchar(50);not null"
+  string city = 2;      // 城市 | [EN] City // @gotags: json:"city" validate:"required,min=2,max=50" gorm:"type:varchar(50);not null"
+  string street = 3;    // 街道地址 | [EN] Street address // @gotags: json:"street" validate:"required,min=5,max=200" gorm:"type:varchar(200);not null"
+  string postal_code = 4; // 邮政编码 | [EN] Postal code // @gotags: json:"postal_code" validate:"omitempty,len=6,numeric" gorm:"type:varchar(10)"
+  bool is_default = 5;  // 是否默认地址 | [EN] Is default address // @gotags: json:"is_default" gorm:"type:boolean;default:false"
 }
 ```
 
-Generate your `.pb.go` files with the protoc command as normal:
-
-```console
-protoc --proto_path=. --go_out=paths=source_relative:. test.proto
-```
-
-Then run `protoc-go-inject-tag` against the generated files (e.g `test.pb.go`):
-
-```console
-$ protoc-go-inject-tag -input=./test.pb.go
-# or
-$ protoc-go-inject-tag -input="*.pb.go"
-```
-
-The custom tags will be injected to `test.pb.go`:
+**生成后：**
 
 ```go
-type IP struct {
- // @gotags: valid:"ip"
- Address string `protobuf:"bytes,1,opt,name=Address,json=address" json:"Address,omitempty" valid:"ip"`
+// 地址信息
+// [EN] Address information
+type Address struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Province      string                 `protobuf:"bytes,1,opt,name=province,proto3" json:"province" validate:"required,min=2,max=50" gorm:"type:varchar(50);not null"`                // 省份 | [EN] Province
+	City          string                 `protobuf:"bytes,2,opt,name=city,proto3" json:"city" validate:"required,min=2,max=50" gorm:"type:varchar(50);not null"`                        // 城市 | [EN] City
+	Street        string                 `protobuf:"bytes,3,opt,name=street,proto3" json:"street" validate:"required,min=5,max=200" gorm:"type:varchar(200);not null"`                  // 街道地址 | [EN] Street address
+	PostalCode    string                 `protobuf:"bytes,4,opt,name=postal_code,json=postalCode,proto3" json:"postal_code" validate:"omitempty,len=6,numeric" gorm:"type:varchar(10)"` // 邮政编码 | [EN] Postal code
+	IsDefault     bool                   `protobuf:"varint,5,opt,name=is_default,json=isDefault,proto3" json:"is_default" gorm:"type:boolean;default:false"`                            // 是否默认地址 | [EN] Is default address
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 ```
 
-## Remove gotag comments from generated output
+完整示例见 [examples/example.proto](examples/example.proto)
 
-Utilizing the `-remove_tag_comment` flag, you can remove the gotag comment that
-is normally annotated to the generated code. This allows more seamless support with
-libraries like swag/openapi generators that use code comments to generate openapi
-files.
+## 使用方法
 
-## Deprecated functionality
 
-### Skip `XXX_*` fields
+### 命令示例
 
-To skip the tag for the generated `XXX_*` fields (unknown fields), use the
-`-XXX_skip=yaml,xml` flag. This is deprecated, as this functionality hasn't
-existed in `protoc-gen-go` since v1.4.x.
+```bash
+# 单个文件
+protoc-go-inject-tag -i example.pb.go
 
-#### `inject_tag` keyword
+# 目录中所有文件
+protoc-go-inject-tag -i pb/*.pb.go
 
-Since **v1.3.0**, we recommend using `@gotags:` rather than `@inject_tags:`,
-as `@gotags` is more indicative of the language the comment is for. We don't
-plan on removing `@inject_tags:` support anytime soon, however we strongly
-recommend switching to `@gotags`.
+# 递归处理所有子目录（推荐）
+protoc-go-inject-tag -i pb/**/*.pb.go
+
+# 详细输出
+protoc-go-inject-tag -i pb/*.pb.go -v
+
+# 试运行（不修改文件）
+protoc-go-inject-tag -i pb/*.pb.go -d
+```
+
+**Windows 注意事项：**
+- 使用反斜杠：`pb\**\*.pb.go`
+- 不要用引号包裹路径
+- 使用 `-i` 而不是 `--input`
+
+### 命令行选项
+
+| 选项 | 简写 | 默认值 | 说明 |
+|------|------|--------|------|
+| `--input` | `-i` | (必需) | 输入文件模式，支持 glob 和 `**` 递归 |
+| `--verbose` | `-v` | false | 显示详细输出 |
+| `--remove-comments` | `-r` | true | 移除 @gotags 注释 |
+| `--format` | `-f` | true | 格式化代码 |
+| `--dry-run` | `-d` | false | 试运行 |
+
+## 代码中使用验证
+
+```bash
+go get github.com/go-playground/validator/v10
+```
+
+```go
+import "github.com/go-playground/validator/v10"
+
+validate := validator.New()
+user := &pb.User{Email: "invalid"}
+
+if err := validate.Struct(user); err != nil {
+    fmt.Printf("验证失败: %v\n", err)
+}
+```
+
+
+## 常见问题
+
+**Q: 标签没有生效？**
+
+检查：`@gotags:` 格式正确（双斜杠+空格）、使用双引号、在生成 protobuf 代码后运行工具使用 `-v` 查看详细日志
+
+**Q: Windows 下找不到文件？**
+
+```bash
+# 正确 ✅
+protoc-go-inject-tag -i pb\**\*.pb.go
+
+# 错误 ❌
+protoc-go-inject-tag --input="pb\*.pb.go"
+```
+
+**Q: 支持哪些标签？**
+
+支持所有 Go 结构体标签：`json`、`validate`、`gorm`、`bson`、`yaml`、`xml` 等
+
+## 相关链接
+
+- [原版 protoc-go-inject-tag](https://github.com/favadi/protoc-go-inject-tag)
+- [go-playground/validator](https://github.com/go-playground/validator)
+- [Protocol Buffers](https://developers.google.com/protocol-buffers)
+- [GORM](https://gorm.io/)
