@@ -9,7 +9,7 @@ option go_package = "github.com/kamalyes/protoc-go-inject-tag/examples/pb";
 // 地址信息
 // [EN] Address information
 message Address {
-  string province = 1;  // 省份 | [EN] Province // @gotags: json:"province" validate:"required,min=2,max=50" gorm:"type:varchar(50);not null"
+  string province = 1;  // 省份 | [EN] Province // @inject_tags: json:"province" validate:"required,min=2,max=50" gorm:"type:varchar(50);not null"
   string city = 2;      // 城市 | [EN] City // @gotags: json:"city" validate:"required,min=2,max=50" gorm:"type:varchar(50);not null"
   string street = 3;    // 街道地址 | [EN] Street address // @gotags: json:"street" validate:"required,min=5,max=200" gorm:"type:varchar(200);not null"
   string postal_code = 4; // 邮政编码 | [EN] Postal code // @gotags: json:"postal_code" validate:"omitempty,len=6,numeric" gorm:"type:varchar(10)"
@@ -39,7 +39,7 @@ message User {
   string status = 8;    // 状态 | [EN] Status // @gotags: json:"status" validate:"required,oneof=active inactive suspended" gorm:"type:varchar(20);default:active;index;comment:状态" bson:"status"
   
   repeated Address addresses = 9; // 地址列表 | [EN] Address list // @gotags: json:"addresses" validate:"omitempty,dive" gorm:"foreignKey:UserID" bson:"addresses,omitempty"
-  UserSettings settings = 10;     // 用户设置 | [EN] User settings // @gotags: json:"settings" validate:"omitempty" gorm:"embedded;embeddedPrefix:settings_" bson:"settings,omitempty"
+  UserSettings settings = 10;     // 用户设置 | [EN] User settings // @inject_tags: json:"settings" validate:"omitempty" gorm:"embedded;embeddedPrefix:settings_" bson:"settings,omitempty"
   
   map<string, string> metadata = 11; // 元数据 | [EN] Metadata // @gotags: json:"metadata,omitempty" gorm:"type:jsonb;comment:元数据" bson:"metadata,omitempty"
   repeated string roles = 12;        // 角色列表 | [EN] Roles // @gotags: json:"roles" validate:"omitempty,dive,oneof=admin user guest" gorm:"type:text[];comment:角色" bson:"roles,omitempty"

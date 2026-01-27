@@ -1,12 +1,12 @@
 # protoc-go-inject-tag
 
-从 proto 文件的 `@gotags` 注释中提取标签，注入到生成的 `.pb.go` 文件中,支持 json、validate、gorm、bson 等所有 Go 标签类型
+从 proto 文件的 `@gotags`或者`@inject_tags` 注释中提取标签，注入到生成的 `.pb.go` 文件中,支持 json、validate、gorm、bson 等所有 Go 标签类型
 
 > **注意：** 此工具会修改 protoc 生成的 `.pb.go` 文件（带有 `DO NOT EDIT` 警告）；这是为了在 protobuf 生成的代码中添加自定义标签，用于验证、ORM 等场景；每次重新生成 `.pb.go` 文件后需要重新运行此工具
 
 ## 特性
 
-- ✅ 自动清理多余的 `@gotags` 注释
+- ✅ 自动清理多余的 `@gotags` `@inject_tags` 注释
 - ✅ 自动格式化生成的代码
 - ✅ 支持批量处理和递归匹配（`**`）
 - ✅ 试运行模式（dry-run）
@@ -32,6 +32,9 @@ protoc --go_out=. --go_opt=paths=source_relative example.proto
 
 # 2. 注入标签（修改生成的 .pb.go 文件）
 protoc-go-inject-tag -i example.pb.go -v
+
+# 推荐
+go build -o protoc-go-inject-tag.exe && .\protoc-go-inject-tag.exe -i="examples/*.pb.go" -v
 ```
 
 > **工作流提示：** 建议将标签注入步骤集成到构建脚本中，这样每次运行 `protoc` 后自动注入标签
@@ -71,7 +74,6 @@ type Address struct {
 
 ## 使用方法
 
-
 ### 命令示例
 
 ```bash
@@ -92,19 +94,20 @@ protoc-go-inject-tag -i pb/*.pb.go -d
 ```
 
 **Windows 注意事项：**
+
 - 使用反斜杠：`pb\**\*.pb.go`
 - 不要用引号包裹路径
 - 使用 `-i` 而不是 `--input`
 
 ### 命令行选项
 
-| 选项 | 简写 | 默认值 | 说明 |
-|------|------|--------|------|
-| `--input` | `-i` | (必需) | 输入文件模式，支持 glob 和 `**` 递归 |
-| `--verbose` | `-v` | false | 显示详细输出 |
-| `--remove-comments` | `-r` | true | 移除 @gotags 注释 |
-| `--format` | `-f` | true | 格式化代码 |
-| `--dry-run` | `-d` | false | 试运行 |
+| 选项                | 简写 | 默认值 | 说明                                 |
+| ------------------- | ---- | ------ | ------------------------------------ |
+| `--input`           | `-i` | (必需) | 输入文件模式，支持 glob 和 `**` 递归 |
+| `--verbose`         | `-v` | false  | 显示详细输出                         |
+| `--remove-comments` | `-r` | true   | 移除 @gotags 注释                    |
+| `--format`          | `-f` | true   | 格式化代码                           |
+| `--dry-run`         | `-d` | false  | 试运行                               |
 
 ## 代码中使用验证
 
@@ -122,7 +125,6 @@ if err := validate.Struct(user); err != nil {
     fmt.Printf("验证失败: %v\n", err)
 }
 ```
-
 
 ## 常见问题
 

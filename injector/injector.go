@@ -91,7 +91,7 @@ func (inj *Injector) ProcessFile(filename string) error {
 func (inj *Injector) injectTags(content []byte) ([]byte, bool, error) {
 	// 匹配行尾的 @gotags 注释
 	// 格式: FieldName Type `existing tags` // comment // @gotags: new tags
-	gotagsRegex := regexp.MustCompile(`(?m)^(\s*)(\w+)\s+([^\s]+)\s+` + "`" + `([^` + "`" + `]*)` + "`" + `([^\n]*?)//\s*@gotags:\s*([^\n]+)$`)
+	gotagsRegex := regexp.MustCompile(`(?m)^(\s*)(\w+)\s+([^\s]+)\s+` + "`" + `([^` + "`" + `]*)` + "`" + `([^\n]*?)//\s*@(?:gotags?|inject_tags?):\s*([^\n]+)$`)
 
 	changed := false
 	result := gotagsRegex.ReplaceAllFunc(content, func(match []byte) []byte {
@@ -144,15 +144,15 @@ func (inj *Injector) injectTags(content []byte) ([]byte, bool, error) {
 	return result, changed, nil
 }
 
-// removeGotagsComments 移除 @gotags 注释
+// removeGotagsComments 移除 @gotags 和 @inject_tags 注释
 func (inj *Injector) removeGotagsComments(content []byte) []byte {
-	// 移除同一行中的 @gotags 部分，但保留前面的注释
+	// 移除同一行中的 @gotags/@inject_tags 部分，但保留前面的注释
 	// 匹配: // 前面的注释 @gotags: 后面的内容
-	gotagsInCommentRegex := regexp.MustCompile(`(?m)^(\s*//[^@]*?)\s*@gotags:[^\n]*`)
+	gotagsInCommentRegex := regexp.MustCompile(`(?m)^(\s*//[^@]*?)\s*@(?:gotags?|inject_tags?):[^\n]*`)
 	result := gotagsInCommentRegex.ReplaceAll(content, []byte("$1"))
 
-	// 移除单独的 @gotags 注释行
-	gotagsLineRegex := regexp.MustCompile(`(?m)^\s*//\s*@gotags:[^\n]*\n`)
+	// 移除单独的 @gotags/@inject_tags 注释行
+	gotagsLineRegex := regexp.MustCompile(`(?m)^\s*//\s*@(?:gotags?|inject_tags?):[^\n]*\n`)
 	result = gotagsLineRegex.ReplaceAll(result, []byte(""))
 
 	// 移除多余的空白行（连续超过2个空行）
