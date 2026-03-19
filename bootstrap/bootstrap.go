@@ -1,3 +1,13 @@
+/*
+ * @Author: kamalyes 501893067@qq.com
+ * @Date: 2025-11-26 00:00:00
+ * @LastEditors: kamalyes 501893067@qq.com
+ * @LastEditTime: 2026-03-17 09:15:29
+ * @FilePath: \protoc-go-inject-tag\bootstrap\bootstrap.go
+ * @Description: 命令行入口与参数解析模块，负责匹配目标文件并调度标签注入流程
+ *
+ * Copyright (c) 2025 by kamalyes, All Rights Reserved.
+ */
 package bootstrap
 
 import (
@@ -12,11 +22,16 @@ import (
 
 var (
 	inputPattern   string
+	showVersion    bool
 	verbose        bool
 	removeComments bool
 	formatCode     bool
 	dryRun         bool
 )
+
+// Version can be injected at build time, e.g.:
+// go build -ldflags="-X 'github.com/kamalyes/protoc-go-inject-tag/bootstrap.Version=v1.2.3'"
+var Version = "dev"
 
 var rootCmd = &cobra.Command{
 	Use:   "protoc-go-inject-tag",
@@ -43,15 +58,19 @@ func Execute() error {
 
 func init() {
 	rootCmd.Flags().StringVarP(&inputPattern, "input", "i", "", "输入文件模式 (必需，例如: ./pb/*.pb.go)")
+	rootCmd.Flags().BoolVar(&showVersion, "version", false, "显示版本号")
 	rootCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "显示详细输出")
 	rootCmd.Flags().BoolVarP(&removeComments, "remove-comments", "r", true, "移除 @gotags 注释 (默认: true)")
 	rootCmd.Flags().BoolVarP(&formatCode, "format", "f", true, "格式化代码 (默认: true)")
 	rootCmd.Flags().BoolVarP(&dryRun, "dry-run", "d", false, "试运行，不实际修改文件")
-
-	rootCmd.MarkFlagRequired("input")
 }
 
 func run(cmd *cobra.Command, args []string) error {
+	if showVersion {
+		fmt.Printf("%s\n", Version)
+		return nil
+	}
+
 	if inputPattern == "" {
 		return fmt.Errorf("必须指定 -input 参数")
 	}

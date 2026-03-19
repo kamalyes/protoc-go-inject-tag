@@ -91,7 +91,7 @@ func (inj *Injector) ProcessFile(filename string) error {
 func (inj *Injector) injectTags(content []byte) ([]byte, bool, error) {
 	// 匹配行尾的 @gotags 注释
 	// 格式: FieldName Type `existing tags` // comment // @gotags: new tags
-	gotagsRegex := regexp.MustCompile(`(?m)^(\s*)(\w+)\s+([^\s]+)\s+` + "`" + `([^` + "`" + `]*)` + "`" + `([^\n]*?)//\s*@(?:gotags?|inject_tags?):\s*([^\n]+)$`)
+	gotagsRegex := regexp.MustCompile(`(?m)^(\s*)(\w+)\s+([^\s]+)\s+` + "`" + `([^` + "`" + `]*)` + "`" + `([^\n]*?)(?://\s*)?@(?:gotags?|inject_tags?):\s*([^\n]+)$`)
 
 	changed := false
 	result := gotagsRegex.ReplaceAllFunc(content, func(match []byte) []byte {

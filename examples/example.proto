@@ -92,6 +92,8 @@ message ListUsersRequest {
   string keyword = 4;    // 搜索关键词 | [EN] Search keyword // @gotags: validate:"omitempty,min=1,max=50"
   string sort_by = 5;    // 排序字段 | [EN] Sort by // @gotags: validate:"omitempty,oneof=created_at updated_at username"
   string sort_order = 6; // 排序方向 | [EN] Sort order // @gotags: validate:"omitempty,oneof=asc desc"
+  int32 priority = 7;    // 优先级| [EN] Priority // @inject_tag: json:"priority" validate:"gte=1,lte=100"
+  int32 weight = 8;      // 优先级权重(数字越大优先级越高，用于加权负载均衡) | [EN] Priority weight (higher number = higher priority, used for weighted load balancing) @gotags: json:"weight" validate:"gte=1,lte=100"
 }
 
 // 用户列表响应

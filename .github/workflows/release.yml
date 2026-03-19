@@ -98,7 +98,9 @@ jobs:
           EXT=""
           if [ "${{ matrix.goos }}" = "windows" ]; then EXT=".exe"; fi
           OUT=dist/protoc-go-inject-tag-${{ matrix.goos }}-${{ matrix.goarch }}$EXT
-          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -v -trimpath -ldflags="-s -w" -o "$OUT" main.go
+          COMMIT_SHORT="${GITHUB_SHA::7}"
+          VERSION="${GITHUB_REF_NAME}-${COMMIT_SHORT}"
+          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -v -trimpath -ldflags="-s -w -X github.com/kamalyes/protoc-go-inject-tag/bootstrap.Version=${VERSION}" -o "$OUT" main.go
 
       - name: ♻️ UPX Cache
         id: upx-cache

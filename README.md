@@ -34,7 +34,7 @@ protoc --go_out=. --go_opt=paths=source_relative example.proto
 protoc-go-inject-tag -i example.pb.go -v
 
 # 推荐
-go build -o protoc-go-inject-tag.exe && .\protoc-go-inject-tag.exe -i="examples/*.pb.go" -v
+$ts = Get-Date -Format "yyyyMMddHHmmss"; go build -ldflags "-X github.com/kamalyes/protoc-go-inject-tag/bootstrap.Version=$ts" -o protoc-go-inject-tag.exe; .\protoc-go-inject-tag.exe -i="examples/*.pb.go" -v
 ```
 
 > **工作流提示：** 建议将标签注入步骤集成到构建脚本中，这样每次运行 `protoc` 后自动注入标签
