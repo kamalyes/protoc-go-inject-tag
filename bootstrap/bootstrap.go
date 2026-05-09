@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-26 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2026-03-17 09:15:29
+ * @LastEditTime: 2026-05-09 13:39:52
  * @FilePath: \protoc-go-inject-tag\bootstrap\bootstrap.go
  * @Description: 命令行入口与参数解析模块，负责匹配目标文件并调度标签注入流程
  *
@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/kamalyes/protoc-go-inject-tag/injector"
+	"github.com/kamalyes/protoc-go-inject-tag/swagger"
 	"github.com/spf13/cobra"
 )
 
@@ -27,6 +28,10 @@ var (
 	removeComments bool
 	formatCode     bool
 	dryRun         bool
+
+	swaggerInput string
+	swaggerFile  string
+	swaggerProto string
 )
 
 // Version can be injected at build time, e.g.:
@@ -63,6 +68,26 @@ func init() {
 	rootCmd.Flags().BoolVarP(&removeComments, "remove-comments", "r", true, "移除 @gotags 注释 (默认: true)")
 	rootCmd.Flags().BoolVarP(&formatCode, "format", "f", true, "格式化代码 (默认: true)")
 	rootCmd.Flags().BoolVarP(&dryRun, "dry-run", "d", false, "试运行，不实际修改文件")
+
+	swaggerCmd := &cobra.Command{
+		Use:   "swagger",
+		Short: "处理 swagger 文件：从 proto @inject_tag 注入约束 + 剥离注释",
+		Long: `swagger 子命令用于后处理 protoc-gen-openapiv2 生成的 swagger 文件
+
+功能：
+  - 从 proto 文件的 @inject_tag/@gotags 注解中解析 validate 标签
+  - 将 validate 约束转换为 swagger schema（required/minLength/maxLength/minimum/maximum/pattern/enum/format）
+  - 从 swagger description 中剥离 @inject_tag 文本
+
+示例：
+  protoc-go-inject-tag swagger --input=./proto/**/*.proto --swagger=./proto/**/*.swagger.yaml
+  protoc-go-inject-tag swagger --input=./proto/ -s=./proto/access_control.swagger.yaml`,
+		RunE: runSwagger,
+	}
+	swaggerCmd.Flags().StringVarP(&swaggerInput, "input", "i", "", "proto 文件模式 (必需)")
+	swaggerCmd.Flags().StringVarP(&swaggerFile, "swagger", "s", "", "swagger 文件路径（指定单个文件时使用）")
+	swaggerCmd.Flags().StringVar(&swaggerProto, "proto-dir", "", "proto 目录（递归扫描 .proto 文件）")
+	rootCmd.AddCommand(swaggerCmd)
 }
 
 func run(cmd *cobra.Command, args []string) error {
@@ -125,6 +150,96 @@ func run(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("有 %d 个文件处理失败", errorCount)
 	}
 
+	return nil
+}
+
+func runSwagger(cmd *cobra.Command, args []string) error {
+	if swaggerInput == "" && swaggerProto == "" {
+		return fmt.Errorf("必须指定 --input 或 --proto-dir 参数")
+	}
+
+	var protoFiles []string
+	var err error
+
+	if swaggerInput != "" {
+		protoFiles, err = findFiles(swaggerInput)
+		if err != nil {
+			return fmt.Errorf("查找 proto 文件失败: %w", err)
+		}
+	} else {
+		err = filepath.Walk(swaggerProto, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			if !info.IsDir() && strings.HasSuffix(path, ".proto") {
+				protoFiles = append(protoFiles, path)
+			}
+			return nil
+		})
+		if err != nil {
+			return fmt.Errorf("遍历 proto 目录失败: %w", err)
+		}
+	}
+
+	if len(protoFiles) == 0 {
+		return fmt.Errorf("没有找到匹配的 proto 文件")
+	}
+
+	if verbose {
+		fmt.Printf("找到 %d 个 proto 文件\n", len(protoFiles))
+	}
+
+	var swaggerFiles []string
+	if swaggerFile != "" {
+		swaggerFiles = []string{swaggerFile}
+	} else {
+		if swaggerProto != "" {
+			err = filepath.Walk(swaggerProto, func(path string, info os.FileInfo, err error) error {
+				if err != nil {
+					return err
+				}
+				if !info.IsDir() && (strings.HasSuffix(path, ".swagger.json") || strings.HasSuffix(path, ".swagger.yaml") || strings.HasSuffix(path, ".swagger.yml")) {
+					swaggerFiles = append(swaggerFiles, path)
+				}
+				return nil
+			})
+			if err != nil {
+				return fmt.Errorf("遍历 swagger 目录失败: %w", err)
+			}
+		} else {
+			swaggerFiles, err = findFiles(swaggerInput)
+			if err != nil {
+				return fmt.Errorf("查找 swagger 文件失败: %w", err)
+			}
+		}
+	}
+
+	if len(swaggerFiles) == 0 {
+		return fmt.Errorf("没有找到 swagger 文件")
+	}
+
+	if verbose {
+		fmt.Printf("找到 %d 个 swagger 文件\n", len(swaggerFiles))
+	}
+
+	proc := swagger.NewProcessor(verbose)
+
+	errorCount := 0
+	for _, sf := range swaggerFiles {
+		if !strings.HasSuffix(sf, ".swagger.json") && !strings.HasSuffix(sf, ".swagger.yaml") && !strings.HasSuffix(sf, ".swagger.yml") {
+			continue
+		}
+		if err := proc.ProcessFile(sf, protoFiles); err != nil {
+			fmt.Fprintf(os.Stderr, "处理 swagger 文件失败 %s: %v\n", sf, err)
+			errorCount++
+		}
+	}
+
+	if errorCount > 0 {
+		return fmt.Errorf("有 %d 个 swagger 文件处理失败", errorCount)
+	}
+
+	fmt.Printf("\n✅ swagger 注入处理完成\n")
 	return nil
 }
 
