@@ -485,14 +485,18 @@ func TestProcessor_ApplyConstraints(t *testing.T) {
 		proc := NewProcessor(false)
 		prop := &swaggerProperty{}
 		c := &SwaggerConstraints{
-			Required:  true,
-			MinLength: ptrInt64(2),
-			MaxLength: ptrInt64(100),
-			Min:       ptrFloat64(0),
-			Max:       ptrFloat64(999),
-			Pattern:   "^[a-z]+$",
-			Format:    "email",
-			Enum:      []string{"A", "B", "C"},
+			Required:         true,
+			MinLength:        ptrInt64(2),
+			MaxLength:        ptrInt64(100),
+			Min:              ptrFloat64(0),
+			Max:              ptrFloat64(999),
+			ExclusiveMinimum: true,
+			ExclusiveMaximum: true,
+			Pattern:          "^[a-z]+$",
+			Format:           "email",
+			Enum:             []string{"A", "B", "C"},
+			MinItems:         ptrInt64(1),
+			MaxItems:         ptrInt64(10),
 		}
 		proc.applyConstraints(prop, c)
 
@@ -502,14 +506,20 @@ func TestProcessor_ApplyConstraints(t *testing.T) {
 		assert.Equal(t, int64(100), *prop.MaxLength)
 		assert.NotNil(t, prop.Minimum)
 		assert.Equal(t, float64(0), *prop.Minimum)
+		assert.True(t, prop.ExclusiveMinimum)
 		assert.NotNil(t, prop.Maximum)
 		assert.Equal(t, float64(999), *prop.Maximum)
+		assert.True(t, prop.ExclusiveMaximum)
 		assert.Equal(t, "^[a-z]+$", prop.Pattern)
 		assert.Equal(t, "email", prop.Format)
 		enumSlice, ok := prop.Enum.([]interface{})
 		require.True(t, ok)
 		assert.Len(t, enumSlice, 3)
 		assert.Equal(t, "A", enumSlice[0])
+		assert.NotNil(t, prop.MinItems)
+		assert.Equal(t, int64(1), *prop.MinItems)
+		assert.NotNil(t, prop.MaxItems)
+		assert.Equal(t, int64(10), *prop.MaxItems)
 	})
 
 	t.Run("format not overwritten when already set", func(t *testing.T) {
@@ -766,8 +776,17 @@ message User {
 		assert.Equal(t, "^[a-zA-Z]+$", user.Properties.Get("code").Pattern)
 		assert.NotNil(t, user.Properties.Get("age").Minimum)
 		assert.Equal(t, float64(0), *user.Properties.Get("age").Minimum)
+		assert.False(t, user.Properties.Get("age").ExclusiveMinimum)
 		assert.NotNil(t, user.Properties.Get("age").Maximum)
 		assert.Equal(t, float64(150), *user.Properties.Get("age").Maximum)
+		assert.False(t, user.Properties.Get("age").ExclusiveMaximum)
+
+		assert.NotNil(t, user.Properties.Get("weight").Minimum)
+		assert.Equal(t, float64(0), *user.Properties.Get("weight").Minimum)
+		assert.True(t, user.Properties.Get("weight").ExclusiveMinimum)
+		assert.NotNil(t, user.Properties.Get("weight").Maximum)
+		assert.Equal(t, float64(100), *user.Properties.Get("weight").Maximum)
+		assert.True(t, user.Properties.Get("weight").ExclusiveMaximum)
 
 		enumVals, ok := user.Properties.Get("status").Enum.([]interface{})
 		require.True(t, ok)

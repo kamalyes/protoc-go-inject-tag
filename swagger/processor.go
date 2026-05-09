@@ -230,8 +230,14 @@ func (p *Processor) applyConstraints(prop *swaggerProperty, c *SwaggerConstraint
 	if c.Min != nil {
 		prop.Minimum = c.Min
 	}
+	if c.ExclusiveMinimum {
+		prop.ExclusiveMinimum = true
+	}
 	if c.Max != nil {
 		prop.Maximum = c.Max
+	}
+	if c.ExclusiveMaximum {
+		prop.ExclusiveMaximum = true
 	}
 	if c.Pattern != "" {
 		prop.Pattern = c.Pattern
@@ -245,5 +251,11 @@ func (p *Processor) applyConstraints(prop *swaggerProperty, c *SwaggerConstraint
 			enumVals[i] = e
 		}
 		prop.Enum = enumVals
+	}
+	if c.MinItems != nil {
+		prop.MinItems = c.MinItems
+	}
+	if c.MaxItems != nil {
+		prop.MaxItems = c.MaxItems
 	}
 }

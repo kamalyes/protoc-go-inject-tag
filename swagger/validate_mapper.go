@@ -20,16 +20,18 @@ import (
 
 // SwaggerConstraints 从validate标签解析出的Swagger约束集合
 type SwaggerConstraints struct {
-	Required  bool     // 是否必填
-	MinLength *int64   // 字符串最小长度
-	MaxLength *int64   // 字符串最大长度
-	Min       *float64 // 数值最小值
-	Max       *float64 // 数值最大值
-	Pattern   string   // 正则表达式模式
-	Enum      []string // 枚举值列表
-	Format    string   // Swagger格式（email/uri/uuid等）
-	MinItems  *int64   // 数组最小元素数
-	MaxItems  *int64   // 数组最大元素数
+	Required         bool     // 是否必填
+	MinLength        *int64   // 字符串最小长度
+	MaxLength        *int64   // 字符串最大长度
+	Min              *float64 // 数值最小值
+	Max              *float64 // 数值最大值
+	ExclusiveMinimum bool     // 是否为严格大于（gt规则）
+	ExclusiveMaximum bool     // 是否为严格小于（lt规则）
+	Pattern          string   // 正则表达式模式
+	Enum             []string // 枚举值列表
+	Format           string   // Swagger格式（email/uri/uuid等）
+	MinItems         *int64   // 数组最小元素数
+	MaxItems         *int64   // 数组最大元素数
 }
 
 type ruleHandler func(c *SwaggerConstraints, value string)
@@ -48,14 +50,14 @@ var ruleHandlers = map[string]ruleHandler{
 	"lte": func(c *SwaggerConstraints, v string) { c.Max = parseFloat(v) },
 	"gt": func(c *SwaggerConstraints, v string) {
 		if p := parseFloat(v); p != nil {
-			*p += 0.0000001
 			c.Min = p
+			c.ExclusiveMinimum = true
 		}
 	},
 	"lt": func(c *SwaggerConstraints, v string) {
 		if p := parseFloat(v); p != nil {
-			*p -= 0.0000001
 			c.Max = p
+			c.ExclusiveMaximum = true
 		}
 	},
 	"email":    func(c *SwaggerConstraints, _ string) { c.Format = "email" },
@@ -63,6 +65,8 @@ var ruleHandlers = map[string]ruleHandler{
 	"uri":      func(c *SwaggerConstraints, _ string) { c.Format = "uri" },
 	"uuid":     func(c *SwaggerConstraints, _ string) { c.Format = "uuid" },
 	"oneof":    func(c *SwaggerConstraints, v string) { c.Enum = strings.Fields(v) },
+	"minitems": func(c *SwaggerConstraints, v string) { c.MinItems = parseInt(v) },
+	"maxitems": func(c *SwaggerConstraints, v string) { c.MaxItems = parseInt(v) },
 	"numeric":  func(c *SwaggerConstraints, _ string) { c.Pattern = "^[0-9]+$" },
 	"alpha":    func(c *SwaggerConstraints, _ string) { c.Pattern = "^[a-zA-Z]+$" },
 	"alphanum": func(c *SwaggerConstraints, _ string) { c.Pattern = "^[a-zA-Z0-9]+$" },

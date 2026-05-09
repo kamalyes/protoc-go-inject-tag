@@ -74,9 +74,11 @@ func TestParseValidateToSwagger(t *testing.T) {
 	t.Run("gt lt", func(t *testing.T) {
 		c := ParseValidateToSwagger("gt=0,lt=10")
 		assert.NotNil(t, c.Min)
-		assert.InDelta(t, 0.0000001, *c.Min, 0.000001)
+		assert.Equal(t, float64(0), *c.Min)
+		assert.True(t, c.ExclusiveMinimum)
 		assert.NotNil(t, c.Max)
-		assert.InDelta(t, 9.9999999, *c.Max, 0.000001)
+		assert.Equal(t, float64(10), *c.Max)
+		assert.True(t, c.ExclusiveMaximum)
 	})
 
 	t.Run("gt invalid", func(t *testing.T) {
@@ -203,6 +205,46 @@ func TestParseValidateToSwagger(t *testing.T) {
 		assert.NotNil(t, c.MinLength)
 		assert.Equal(t, int64(11), *c.MinLength)
 		assert.Equal(t, "^[0-9]+$", c.Pattern)
+	})
+
+	t.Run("minitems", func(t *testing.T) {
+		c := ParseValidateToSwagger("minitems=1")
+		assert.NotNil(t, c.MinItems)
+		assert.Equal(t, int64(1), *c.MinItems)
+		assert.Nil(t, c.MaxItems)
+	})
+
+	t.Run("maxitems", func(t *testing.T) {
+		c := ParseValidateToSwagger("maxitems=10")
+		assert.Nil(t, c.MinItems)
+		assert.NotNil(t, c.MaxItems)
+		assert.Equal(t, int64(10), *c.MaxItems)
+	})
+
+	t.Run("minitems maxitems combined", func(t *testing.T) {
+		c := ParseValidateToSwagger("required,minitems=1,maxitems=5")
+		assert.True(t, c.Required)
+		assert.NotNil(t, c.MinItems)
+		assert.Equal(t, int64(1), *c.MinItems)
+		assert.NotNil(t, c.MaxItems)
+		assert.Equal(t, int64(5), *c.MaxItems)
+	})
+
+	t.Run("minitems invalid", func(t *testing.T) {
+		c := ParseValidateToSwagger("minitems=abc")
+		assert.Nil(t, c.MinItems)
+	})
+
+	t.Run("maxitems invalid", func(t *testing.T) {
+		c := ParseValidateToSwagger("maxitems=xyz")
+		assert.Nil(t, c.MaxItems)
+	})
+
+	t.Run("dive ignored", func(t *testing.T) {
+		c := ParseValidateToSwagger("dive")
+		assert.False(t, c.Required)
+		assert.Nil(t, c.Min)
+		assert.Nil(t, c.Max)
 	})
 }
 

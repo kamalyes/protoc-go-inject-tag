@@ -326,9 +326,13 @@ type swaggerProperty struct {
 	ReadOnly             bool                 `json:"readOnly,omitempty" yaml:"readOnly,omitempty"`
 	Minimum              *float64             `json:"minimum,omitempty" yaml:"minimum,omitempty"`
 	Maximum              *float64             `json:"maximum,omitempty" yaml:"maximum,omitempty"`
+	ExclusiveMinimum     bool                 `json:"exclusiveMinimum,omitempty" yaml:"exclusiveMinimum,omitempty"`
+	ExclusiveMaximum     bool                 `json:"exclusiveMaximum,omitempty" yaml:"exclusiveMaximum,omitempty"`
 	MinLength            *int64               `json:"minLength,omitempty" yaml:"minLength,omitempty"`
 	MaxLength            *int64               `json:"maxLength,omitempty" yaml:"maxLength,omitempty"`
 	Pattern              string               `json:"pattern,omitempty" yaml:"pattern,omitempty"`
+	MinItems             *int64               `json:"minItems,omitempty" yaml:"minItems,omitempty"`
+	MaxItems             *int64               `json:"maxItems,omitempty" yaml:"maxItems,omitempty"`
 	Required             bool                 `json:"required,omitempty" yaml:"required,omitempty"`
 	AllOf                []*swaggerProperty   `json:"allOf,omitempty" yaml:"allOf,omitempty"`
 }
