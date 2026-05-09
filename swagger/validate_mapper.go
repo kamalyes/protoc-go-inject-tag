@@ -32,76 +32,70 @@ type SwaggerConstraints struct {
 	MaxItems  *int64   // 数组最大元素数
 }
 
-// ParseValidateToSwagger 将validate标签字符串解析为SwaggerConstraints
-// 例如 "required,min=3,max=50" → {Required:true, Min:3, Max:50}
+type ruleHandler func(c *SwaggerConstraints, value string)
+
+var ruleHandlers = map[string]ruleHandler{
+	"required": func(c *SwaggerConstraints, _ string) { c.Required = true },
+	"min":      func(c *SwaggerConstraints, v string) { c.Min = parseFloat(v) },
+	"max":      func(c *SwaggerConstraints, v string) { c.Max = parseFloat(v) },
+	"len": func(c *SwaggerConstraints, v string) {
+		if n := parseInt(v); n != nil {
+			c.MinLength = n
+			c.MaxLength = n
+		}
+	},
+	"gte": func(c *SwaggerConstraints, v string) { c.Min = parseFloat(v) },
+	"lte": func(c *SwaggerConstraints, v string) { c.Max = parseFloat(v) },
+	"gt": func(c *SwaggerConstraints, v string) {
+		if p := parseFloat(v); p != nil {
+			*p += 0.0000001
+			c.Min = p
+		}
+	},
+	"lt": func(c *SwaggerConstraints, v string) {
+		if p := parseFloat(v); p != nil {
+			*p -= 0.0000001
+			c.Max = p
+		}
+	},
+	"email":    func(c *SwaggerConstraints, _ string) { c.Format = "email" },
+	"url":      func(c *SwaggerConstraints, _ string) { c.Format = "uri" },
+	"uri":      func(c *SwaggerConstraints, _ string) { c.Format = "uri" },
+	"uuid":     func(c *SwaggerConstraints, _ string) { c.Format = "uuid" },
+	"oneof":    func(c *SwaggerConstraints, v string) { c.Enum = strings.Fields(v) },
+	"numeric":  func(c *SwaggerConstraints, _ string) { c.Pattern = "^[0-9]+$" },
+	"alpha":    func(c *SwaggerConstraints, _ string) { c.Pattern = "^[a-zA-Z]+$" },
+	"alphanum": func(c *SwaggerConstraints, _ string) { c.Pattern = "^[a-zA-Z0-9]+$" },
+}
+
+func parseFloat(s string) *float64 {
+	if v, err := strconv.ParseFloat(s, 64); err == nil {
+		return &v
+	}
+	return nil
+}
+
+func parseInt(s string) *int64 {
+	if v, err := strconv.ParseInt(s, 10, 64); err == nil {
+		return &v
+	}
+	return nil
+}
+
 func ParseValidateToSwagger(validateStr string) *SwaggerConstraints {
 	if validateStr == "" {
 		return nil
 	}
 
 	c := &SwaggerConstraints{}
-	rules := splitRules(validateStr)
-
-	for _, rule := range rules {
+	for _, rule := range splitRules(validateStr) {
 		rule = strings.TrimSpace(rule)
 		if rule == "" {
 			continue
 		}
-
 		key, value := splitRule(rule)
-
-		switch key {
-		case "required":
-			c.Required = true
-		case "omitempty":
-			// 忽略，不影响swagger约束
-		case "min":
-			if v, err := strconv.ParseFloat(value, 64); err == nil {
-				c.Min = &v
-			}
-		case "max":
-			if v, err := strconv.ParseFloat(value, 64); err == nil {
-				c.Max = &v
-			}
-		case "len":
-			if v, err := strconv.ParseInt(value, 10, 64); err == nil {
-				c.MinLength = &v
-				c.MaxLength = &v
-			}
-		case "gte":
-			if v, err := strconv.ParseFloat(value, 64); err == nil {
-				c.Min = &v
-			}
-		case "lte":
-			if v, err := strconv.ParseFloat(value, 64); err == nil {
-				c.Max = &v
-			}
-		case "gt":
-			if v, err := strconv.ParseFloat(value, 64); err == nil {
-				v += 0.0000001
-				c.Min = &v
-			}
-		case "lt":
-			if v, err := strconv.ParseFloat(value, 64); err == nil {
-				v -= 0.0000001
-				c.Max = &v
-			}
-		case "email":
-			c.Format = "email"
-		case "url", "uri":
-			c.Format = "uri"
-		case "uuid":
-			c.Format = "uuid"
-		case "oneof":
-			c.Enum = strings.Fields(value)
-		case "numeric":
-			c.Pattern = "^[0-9]+$"
-		case "alpha":
-			c.Pattern = "^[a-zA-Z]+$"
-		case "alphanum":
-			c.Pattern = "^[a-zA-Z0-9]+$"
-		case "dive":
-			// 仅对数组元素生效，顶层忽略
+		if handler, ok := ruleHandlers[key]; ok {
+			handler(c, value)
 		}
 	}
 
