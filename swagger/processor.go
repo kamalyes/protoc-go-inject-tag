@@ -26,7 +26,8 @@ import (
 )
 
 // injectTagInDescRegex 匹配description/title中的@inject_tag文本，用于从swagger中剥离
-var injectTagInDescRegex = regexp.MustCompile(`\s*@(?:inject_tag|gotags?|inject_tags?):\s*[^\n]+`)
+// 支持匹配前面的可选 "//" 注释前缀（来自proto注释经swagger生成后残留）
+var injectTagInDescRegex = regexp.MustCompile(`\s*(?://\s*)?@(?:inject_tag|gotags?|inject_tags?):\s*[^\n]+`)
 
 // Processor swagger后处理器
 type Processor struct {

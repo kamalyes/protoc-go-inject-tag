@@ -87,6 +87,7 @@ func init() {
 	swaggerCmd.Flags().StringVarP(&swaggerInput, "input", "i", "", "proto 文件模式 (必需)")
 	swaggerCmd.Flags().StringVarP(&swaggerFile, "swagger", "s", "", "swagger 文件路径（指定单个文件时使用）")
 	swaggerCmd.Flags().StringVar(&swaggerProto, "proto-dir", "", "proto 目录（递归扫描 .proto 文件）")
+	swaggerCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "显示详细输出")
 	rootCmd.AddCommand(swaggerCmd)
 }
 

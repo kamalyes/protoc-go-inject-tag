@@ -154,6 +154,7 @@ protoc-go-inject-tag swagger --proto-dir=./proto/ -v
 | `--input`     | `-i` |        | proto 文件模式（指定 proto 文件） |
 | `--swagger`   | `-s` |        | 指定单个 swagger 文件路径         |
 | `--proto-dir` |      |        | proto 目录（递归扫描）            |
+| `--verbose`   | `-v` | false  | 显示详细输出                      |
 
 ## 代码中使用验证
 

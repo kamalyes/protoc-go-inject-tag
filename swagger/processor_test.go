@@ -947,3 +947,110 @@ func TestProcessor_StripInjectTagVerbose(t *testing.T) {
 		assert.Equal(t, "no inject tag", doc.Definitions["StripVerbose"].Properties.Get("field2").Description)
 	})
 }
+
+func TestProcessor_StripDoubleSlashPrefix(t *testing.T) {
+	t.Run("strip // @inject_tag from title", func(t *testing.T) {
+		protoContent := `syntax = "proto3";
+
+message TmpKey {
+  string id = 1;  // 临时密钥ID | [EN] Temporary key ID // @inject_tag: validate:"required"
+}
+`
+		protoPath := writeTempProto(t, protoContent)
+		swaggerPath := writeSwaggerYAML(t, swaggerDoc{
+			Definitions: map[string]*swaggerSchema{
+				"TmpKey": {
+					Type: "object",
+					Properties: newProps(
+						"id", &swaggerProperty{
+							Type:        "string",
+							Title:       `临时密钥ID | [EN] Temporary key ID  // @inject_tag: validate:"required"`,
+							Description: `临时密钥ID | [EN] Temporary key ID  // @inject_tag: validate:"required"`,
+						},
+					),
+				},
+			},
+		})
+
+		proc := NewProcessor(false)
+		require.NoError(t, proc.ProcessFile(swaggerPath, []string{protoPath}))
+
+		data, err := os.ReadFile(swaggerPath)
+		require.NoError(t, err)
+
+		var doc swaggerDoc
+		require.NoError(t, yaml.Unmarshal(data, &doc))
+
+		idProp := doc.Definitions["TmpKey"].Properties.Get("id")
+		require.NotNil(t, idProp)
+		assert.Equal(t, "临时密钥ID | [EN] Temporary key ID", idProp.Title)
+		assert.Equal(t, "临时密钥ID | [EN] Temporary key ID", idProp.Description)
+		assert.Contains(t, doc.Definitions["TmpKey"].Required, "id")
+	})
+
+	t.Run("strip // @gotags from description", func(t *testing.T) {
+		protoContent := `syntax = "proto3";
+
+message Msg {
+  string name = 1;  // 名称 // @gotags: validate:"required"
+}
+`
+		protoPath := writeTempProto(t, protoContent)
+		swaggerPath := writeSwaggerYAML(t, swaggerDoc{
+			Definitions: map[string]*swaggerSchema{
+				"Msg": {
+					Type: "object",
+					Properties: newProps(
+						"name", &swaggerProperty{Type: "string", Description: `名称 // @gotags: validate:"required"`},
+					),
+				},
+			},
+		})
+
+		proc := NewProcessor(false)
+		require.NoError(t, proc.ProcessFile(swaggerPath, []string{protoPath}))
+
+		data, err := os.ReadFile(swaggerPath)
+		require.NoError(t, err)
+
+		var doc swaggerDoc
+		require.NoError(t, yaml.Unmarshal(data, &doc))
+
+		nameProp := doc.Definitions["Msg"].Properties.Get("name")
+		require.NotNil(t, nameProp)
+		assert.Equal(t, "名称", nameProp.Description)
+	})
+
+	t.Run("strip without // prefix still works", func(t *testing.T) {
+		protoContent := `syntax = "proto3";
+
+message Msg2 {
+  string name = 1;  // 名称 @inject_tag: validate:"required"
+}
+`
+		protoPath := writeTempProto(t, protoContent)
+		swaggerPath := writeSwaggerYAML(t, swaggerDoc{
+			Definitions: map[string]*swaggerSchema{
+				"Msg2": {
+					Type: "object",
+					Properties: newProps(
+						"name", &swaggerProperty{Type: "string", Description: `名称 @inject_tag: validate:"required"`},
+					),
+				},
+			},
+		})
+
+		proc := NewProcessor(false)
+		require.NoError(t, proc.ProcessFile(swaggerPath, []string{protoPath}))
+
+		data, err := os.ReadFile(swaggerPath)
+		require.NoError(t, err)
+
+		var doc swaggerDoc
+		require.NoError(t, yaml.Unmarshal(data, &doc))
+
+		nameProp := doc.Definitions["Msg2"].Properties.Get("name")
+		require.NotNil(t, nameProp)
+		assert.Equal(t, "名称", nameProp.Description)
+	})
+}
