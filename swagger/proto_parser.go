@@ -31,8 +31,10 @@ type FieldTag struct {
 
 // ProtoFieldTags 从proto文件解析出的单个字段标签信息
 type ProtoFieldTags struct {
-	MessageName string   // proto message名称
-	FieldName   string   // 字段名称（snake_case）
+	PackageName string
+	MessageName string // proto message名称
+	FieldName   string // 字段名称（snake_case）
+	JSONName    string
 	Tags        FieldTag // 解析后的标签
 }
 
@@ -50,6 +52,7 @@ func ParseProtoFile(filename string) ([]ProtoFieldTags, error) {
 
 	var (
 		result       []ProtoFieldTags
+		packageName  string
 		currentMsg   string
 		msgBodyDepth int
 	)
@@ -61,6 +64,11 @@ func ParseProtoFile(filename string) ([]ProtoFieldTags, error) {
 
 		// 跳过纯注释行和空行
 		if strings.HasPrefix(trimmed, "//") || trimmed == "" {
+			continue
+		}
+
+		if strings.HasPrefix(trimmed, "package ") {
+			packageName = extractPackageName(trimmed)
 			continue
 		}
 
@@ -96,6 +104,7 @@ func ParseProtoFile(filename string) ([]ProtoFieldTags, error) {
 		if fieldName == "" {
 			continue
 		}
+		jsonName := extractProtoJSONName(codePart)
 
 		// 合并同一行所有标签
 		var allGoTags []string
@@ -120,13 +129,24 @@ func ParseProtoFile(filename string) ([]ProtoFieldTags, error) {
 		}
 
 		result = append(result, ProtoFieldTags{
+			PackageName: packageName,
 			MessageName: currentMsg,
 			FieldName:   fieldName,
+			JSONName:    jsonName,
 			Tags:        tags,
 		})
 	}
 
 	return result, scanner.Err()
+}
+
+func extractPackageName(line string) string {
+	line = strings.TrimSpace(strings.TrimSuffix(line, ";"))
+	parts := strings.Fields(line)
+	if len(parts) < 2 || parts[0] != "package" {
+		return ""
+	}
+	return parts[1]
 }
 
 // extractTagValue 从标签注解后的位置提取标签值，直到下一个@标记或行尾
@@ -180,6 +200,16 @@ func extractFieldName(line string) string {
 	}
 
 	return fields[len(fields)-1]
+}
+
+var protoJSONNameRegexp = regexp.MustCompile(`json_name\s*=\s*"([^"]+)"`)
+
+func extractProtoJSONName(line string) string {
+	matches := protoJSONNameRegexp.FindStringSubmatch(line)
+	if len(matches) != 2 {
+		return ""
+	}
+	return matches[1]
 }
 
 // parseGoTagString 解析Go struct tag字符串为key-value映射

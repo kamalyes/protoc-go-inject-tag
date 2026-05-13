@@ -21,31 +21,38 @@ import (
 // swaggerInfo swagger文档信息
 // http://swagger.io/specification/#infoObject
 type swaggerInfo struct {
-	Title       string `json:"title" yaml:"title"`
-	Description string `json:"description,omitempty" yaml:"description,omitempty"`
-	Version     string `json:"version" yaml:"version"`
+	Title          string                 `json:"title" yaml:"title"`
+	Description    string                 `json:"description,omitempty" yaml:"description,omitempty"`
+	TermsOfService string                 `json:"termsOfService,omitempty" yaml:"termsOfService,omitempty"`
+	Version        string                 `json:"version" yaml:"version"`
+	Contact        map[string]interface{} `json:"contact,omitempty" yaml:"contact,omitempty"`
+	License        map[string]interface{} `json:"license,omitempty" yaml:"license,omitempty"`
 }
 
 // swaggerTag swagger顶层标签定义
 // http://swagger.io/specification/#tagObject
 type swaggerTag struct {
-	Name        string `json:"name" yaml:"name"`
-	Description string `json:"description,omitempty" yaml:"description,omitempty"`
+	Name         string               `json:"name" yaml:"name"`
+	Description  string               `json:"description,omitempty" yaml:"description,omitempty"`
+	ExternalDocs *swaggerExternalDocs `json:"externalDocs,omitempty" yaml:"externalDocs,omitempty"`
 }
 
 // swaggerDoc swagger文档顶层结构，字段顺序与protoc-gen-openapiv2 openapiSwaggerObject一致
 // http://swagger.io/specification/#swaggerObject
 type swaggerDoc struct {
-	Swagger     string                    `json:"swagger" yaml:"swagger"`
-	Info        *swaggerInfo              `json:"info,omitempty" yaml:"info,omitempty"`
-	Tags        []swaggerTag              `json:"tags,omitempty" yaml:"tags,omitempty"`
-	Host        string                    `json:"host,omitempty" yaml:"host,omitempty"`
-	BasePath    string                    `json:"basePath,omitempty" yaml:"basePath,omitempty"`
-	Schemes     []string                  `json:"schemes,omitempty" yaml:"schemes,omitempty"`
-	Consumes    []string                  `json:"consumes,omitempty" yaml:"consumes,omitempty"`
-	Produces    []string                  `json:"produces,omitempty" yaml:"produces,omitempty"`
-	Paths       *swaggerPathsObject       `json:"paths,omitempty" yaml:"paths,omitempty"`
-	Definitions map[string]*swaggerSchema `json:"definitions,omitempty" yaml:"definitions,omitempty"`
+	Swagger             string                    `json:"swagger" yaml:"swagger"`
+	Info                *swaggerInfo              `json:"info,omitempty" yaml:"info,omitempty"`
+	Tags                []swaggerTag              `json:"tags,omitempty" yaml:"tags,omitempty"`
+	Host                string                    `json:"host,omitempty" yaml:"host,omitempty"`
+	BasePath            string                    `json:"basePath,omitempty" yaml:"basePath,omitempty"`
+	Schemes             []string                  `json:"schemes,omitempty" yaml:"schemes,omitempty"`
+	Consumes            []string                  `json:"consumes,omitempty" yaml:"consumes,omitempty"`
+	Produces            []string                  `json:"produces,omitempty" yaml:"produces,omitempty"`
+	Paths               *swaggerPathsObject       `json:"paths,omitempty" yaml:"paths,omitempty"`
+	Definitions         map[string]*swaggerSchema `json:"definitions,omitempty" yaml:"definitions,omitempty"`
+	SecurityDefinitions map[string]interface{}    `json:"securityDefinitions,omitempty" yaml:"securityDefinitions,omitempty"`
+	Security            []map[string][]string     `json:"security,omitempty" yaml:"security,omitempty"`
+	ExternalDocs        *swaggerExternalDocs      `json:"externalDocs,omitempty" yaml:"externalDocs,omitempty"`
 }
 
 // pathData 路径条目，保持路径定义顺序
@@ -304,6 +311,21 @@ type swaggerSchema struct {
 	Title                string               `json:"title,omitempty" yaml:"title,omitempty"`
 	ExternalDocs         *swaggerExternalDocs `json:"externalDocs,omitempty" yaml:"externalDocs,omitempty"`
 	ReadOnly             bool                 `json:"readOnly,omitempty" yaml:"readOnly,omitempty"`
+	MultipleOf           *float64             `json:"multipleOf,omitempty" yaml:"multipleOf,omitempty"`
+	Minimum              *float64             `json:"minimum,omitempty" yaml:"minimum,omitempty"`
+	Maximum              *float64             `json:"maximum,omitempty" yaml:"maximum,omitempty"`
+	ExclusiveMinimum     bool                 `json:"exclusiveMinimum,omitempty" yaml:"exclusiveMinimum,omitempty"`
+	ExclusiveMaximum     bool                 `json:"exclusiveMaximum,omitempty" yaml:"exclusiveMaximum,omitempty"`
+	MinLength            *int64               `json:"minLength,omitempty" yaml:"minLength,omitempty"`
+	MaxLength            *int64               `json:"maxLength,omitempty" yaml:"maxLength,omitempty"`
+	Pattern              string               `json:"pattern,omitempty" yaml:"pattern,omitempty"`
+	MinItems             *int64               `json:"minItems,omitempty" yaml:"minItems,omitempty"`
+	MaxItems             *int64               `json:"maxItems,omitempty" yaml:"maxItems,omitempty"`
+	UniqueItems          bool                 `json:"uniqueItems,omitempty" yaml:"uniqueItems,omitempty"`
+	MinProperties        *int64               `json:"minProperties,omitempty" yaml:"minProperties,omitempty"`
+	MaxProperties        *int64               `json:"maxProperties,omitempty" yaml:"maxProperties,omitempty"`
+	XNullable            bool                 `json:"x-nullable,omitempty" yaml:"x-nullable,omitempty"`
+	Example              interface{}          `json:"example,omitempty" yaml:"example,omitempty"`
 	Required             []string             `json:"required,omitempty" yaml:"required,omitempty"`
 	AllOf                []*swaggerProperty   `json:"allOf,omitempty" yaml:"allOf,omitempty"`
 }
@@ -324,6 +346,7 @@ type swaggerProperty struct {
 	Title                string               `json:"title,omitempty" yaml:"title,omitempty"`
 	ExternalDocs         *swaggerExternalDocs `json:"externalDocs,omitempty" yaml:"externalDocs,omitempty"`
 	ReadOnly             bool                 `json:"readOnly,omitempty" yaml:"readOnly,omitempty"`
+	MultipleOf           *float64             `json:"multipleOf,omitempty" yaml:"multipleOf,omitempty"`
 	Minimum              *float64             `json:"minimum,omitempty" yaml:"minimum,omitempty"`
 	Maximum              *float64             `json:"maximum,omitempty" yaml:"maximum,omitempty"`
 	ExclusiveMinimum     bool                 `json:"exclusiveMinimum,omitempty" yaml:"exclusiveMinimum,omitempty"`
@@ -333,6 +356,11 @@ type swaggerProperty struct {
 	Pattern              string               `json:"pattern,omitempty" yaml:"pattern,omitempty"`
 	MinItems             *int64               `json:"minItems,omitempty" yaml:"minItems,omitempty"`
 	MaxItems             *int64               `json:"maxItems,omitempty" yaml:"maxItems,omitempty"`
+	UniqueItems          bool                 `json:"uniqueItems,omitempty" yaml:"uniqueItems,omitempty"`
+	MinProperties        *int64               `json:"minProperties,omitempty" yaml:"minProperties,omitempty"`
+	MaxProperties        *int64               `json:"maxProperties,omitempty" yaml:"maxProperties,omitempty"`
+	XNullable            bool                 `json:"x-nullable,omitempty" yaml:"x-nullable,omitempty"`
+	Example              interface{}          `json:"example,omitempty" yaml:"example,omitempty"`
 	Required             bool                 `json:"required,omitempty" yaml:"required,omitempty"`
 	AllOf                []*swaggerProperty   `json:"allOf,omitempty" yaml:"allOf,omitempty"`
 }
@@ -347,33 +375,51 @@ type swaggerExternalDocs struct {
 // swaggerOperation swagger操作对象，字段顺序与protoc-gen-openapiv2 openapiOperationObject一致
 // http://swagger.io/specification/#operationObject
 type swaggerOperation struct {
-	Summary     string                      `json:"summary,omitempty" yaml:"summary,omitempty"`
-	Description string                      `json:"description,omitempty" yaml:"description,omitempty"`
-	OperationId string                      `json:"operationId,omitempty" yaml:"operationId,omitempty"`
-	Responses   map[string]*swaggerResponse `json:"responses" yaml:"responses"`
-	Parameters  []*swaggerParameter         `json:"parameters,omitempty" yaml:"parameters,omitempty"`
-	Tags        []string                    `json:"tags,omitempty" yaml:"tags,omitempty"`
+	Summary      string                      `json:"summary,omitempty" yaml:"summary,omitempty"`
+	Description  string                      `json:"description,omitempty" yaml:"description,omitempty"`
+	OperationId  string                      `json:"operationId,omitempty" yaml:"operationId,omitempty"`
+	Responses    map[string]*swaggerResponse `json:"responses" yaml:"responses"`
+	Parameters   []*swaggerParameter         `json:"parameters,omitempty" yaml:"parameters,omitempty"`
+	Tags         []string                    `json:"tags,omitempty" yaml:"tags,omitempty"`
+	Deprecated   bool                        `json:"deprecated,omitempty" yaml:"deprecated,omitempty"`
+	Consumes     []string                    `json:"consumes,omitempty" yaml:"consumes,omitempty"`
+	Produces     []string                    `json:"produces,omitempty" yaml:"produces,omitempty"`
+	Security     []map[string][]string       `json:"security,omitempty" yaml:"security,omitempty"`
+	ExternalDocs *swaggerExternalDocs        `json:"externalDocs,omitempty" yaml:"externalDocs,omitempty"`
 }
 
 // swaggerParameter swagger参数，字段顺序与protoc-gen-openapiv2 openapiParameterObject一致
 // http://swagger.io/specification/#parameterObject
 type swaggerParameter struct {
-	Name        string           `json:"name" yaml:"name"`
-	Description string           `json:"description,omitempty" yaml:"description,omitempty"`
-	In          string           `json:"in,omitempty" yaml:"in,omitempty"`
-	Required    bool             `json:"required" yaml:"required"`
-	Type        string           `json:"type,omitempty" yaml:"type,omitempty"`
-	Format      string           `json:"format,omitempty" yaml:"format,omitempty"`
-	Items       *swaggerProperty `json:"items,omitempty" yaml:"items,omitempty"`
-	Enum        interface{}      `json:"enum,omitempty" yaml:"enum,omitempty"`
-	Default     interface{}      `json:"default,omitempty" yaml:"default,omitempty"`
-	Pattern     string           `json:"pattern,omitempty" yaml:"pattern,omitempty"`
-	Schema      *swaggerProperty `json:"schema,omitempty" yaml:"schema,omitempty"`
+	Name             string           `json:"name" yaml:"name"`
+	Description      string           `json:"description,omitempty" yaml:"description,omitempty"`
+	In               string           `json:"in,omitempty" yaml:"in,omitempty"`
+	Required         bool             `json:"required" yaml:"required"`
+	Deprecated       bool             `json:"deprecated,omitempty" yaml:"deprecated,omitempty"`
+	Type             string           `json:"type,omitempty" yaml:"type,omitempty"`
+	Format           string           `json:"format,omitempty" yaml:"format,omitempty"`
+	UniqueItems      bool             `json:"uniqueItems,omitempty" yaml:"uniqueItems,omitempty"`
+	Items            *swaggerProperty `json:"items,omitempty" yaml:"items,omitempty"`
+	Enum             interface{}      `json:"enum,omitempty" yaml:"enum,omitempty"`
+	CollectionFormat string           `json:"collectionFormat,omitempty" yaml:"collectionFormat,omitempty"`
+	Default          interface{}      `json:"default,omitempty" yaml:"default,omitempty"`
+	Minimum          *float64         `json:"minimum,omitempty" yaml:"minimum,omitempty"`
+	Maximum          *float64         `json:"maximum,omitempty" yaml:"maximum,omitempty"`
+	ExclusiveMinimum bool             `json:"exclusiveMinimum,omitempty" yaml:"exclusiveMinimum,omitempty"`
+	ExclusiveMaximum bool             `json:"exclusiveMaximum,omitempty" yaml:"exclusiveMaximum,omitempty"`
+	MinLength        *int64           `json:"minLength,omitempty" yaml:"minLength,omitempty"`
+	MaxLength        *int64           `json:"maxLength,omitempty" yaml:"maxLength,omitempty"`
+	MinItems         *int64           `json:"minItems,omitempty" yaml:"minItems,omitempty"`
+	MaxItems         *int64           `json:"maxItems,omitempty" yaml:"maxItems,omitempty"`
+	Pattern          string           `json:"pattern,omitempty" yaml:"pattern,omitempty"`
+	Schema           *swaggerProperty `json:"schema,omitempty" yaml:"schema,omitempty"`
 }
 
 // swaggerResponse swagger响应对象
 // http://swagger.io/specification/#responseObject
 type swaggerResponse struct {
-	Description string           `json:"description" yaml:"description"`
-	Schema      *swaggerProperty `json:"schema,omitempty" yaml:"schema,omitempty"`
+	Description string                 `json:"description" yaml:"description"`
+	Schema      *swaggerProperty       `json:"schema,omitempty" yaml:"schema,omitempty"`
+	Examples    map[string]interface{} `json:"examples,omitempty" yaml:"examples,omitempty"`
+	Headers     map[string]interface{} `json:"headers,omitempty" yaml:"headers,omitempty"`
 }

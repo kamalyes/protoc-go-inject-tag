@@ -127,10 +127,10 @@ message LoginRequest {
 		userProp := doc.Definitions["LoginRequest"].Properties.Get("username")
 		require.NotNil(t, userProp)
 		assert.Equal(t, "用户名", userProp.Description)
-		assert.NotNil(t, userProp.Minimum)
-		assert.Equal(t, float64(3), *userProp.Minimum)
-		assert.NotNil(t, userProp.Maximum)
-		assert.Equal(t, float64(50), *userProp.Maximum)
+		assert.NotNil(t, userProp.MinLength)
+		assert.Equal(t, int64(3), *userProp.MinLength)
+		assert.NotNil(t, userProp.MaxLength)
+		assert.Equal(t, int64(50), *userProp.MaxLength)
 
 		passProp := doc.Definitions["LoginRequest"].Properties.Get("password")
 		require.NotNil(t, passProp)
@@ -481,22 +481,18 @@ message Yml {
 }
 
 func TestProcessor_ApplyConstraints(t *testing.T) {
-	t.Run("all constraints", func(t *testing.T) {
+	t.Run("string type constraints", func(t *testing.T) {
 		proc := NewProcessor(false)
-		prop := &swaggerProperty{}
+		prop := &swaggerProperty{Type: "string"}
 		c := &SwaggerConstraints{
-			Required:         true,
-			MinLength:        ptrInt64(2),
-			MaxLength:        ptrInt64(100),
-			Min:              ptrFloat64(0),
-			Max:              ptrFloat64(999),
-			ExclusiveMinimum: true,
-			ExclusiveMaximum: true,
-			Pattern:          "^[a-z]+$",
-			Format:           "email",
-			Enum:             []string{"A", "B", "C"},
-			MinItems:         ptrInt64(1),
-			MaxItems:         ptrInt64(10),
+			Required:  true,
+			MinLength: ptrInt64(2),
+			MaxLength: ptrInt64(100),
+			Pattern:   "^[a-z]+$",
+			Format:    "email",
+			Enum:      []string{"A", "B", "C"},
+			MinItems:  ptrInt64(1),
+			MaxItems:  ptrInt64(10),
 		}
 		proc.applyConstraints(prop, c)
 
@@ -504,12 +500,6 @@ func TestProcessor_ApplyConstraints(t *testing.T) {
 		assert.Equal(t, int64(2), *prop.MinLength)
 		assert.NotNil(t, prop.MaxLength)
 		assert.Equal(t, int64(100), *prop.MaxLength)
-		assert.NotNil(t, prop.Minimum)
-		assert.Equal(t, float64(0), *prop.Minimum)
-		assert.True(t, prop.ExclusiveMinimum)
-		assert.NotNil(t, prop.Maximum)
-		assert.Equal(t, float64(999), *prop.Maximum)
-		assert.True(t, prop.ExclusiveMaximum)
 		assert.Equal(t, "^[a-z]+$", prop.Pattern)
 		assert.Equal(t, "email", prop.Format)
 		enumSlice, ok := prop.Enum.([]interface{})
@@ -520,6 +510,40 @@ func TestProcessor_ApplyConstraints(t *testing.T) {
 		assert.Equal(t, int64(1), *prop.MinItems)
 		assert.NotNil(t, prop.MaxItems)
 		assert.Equal(t, int64(10), *prop.MaxItems)
+	})
+
+	t.Run("string min/max mapped to minLength/maxLength", func(t *testing.T) {
+		proc := NewProcessor(false)
+		prop := &swaggerProperty{Type: "string"}
+		c := &SwaggerConstraints{
+			Min: ptrFloat64(3),
+			Max: ptrFloat64(50),
+		}
+		proc.applyConstraints(prop, c)
+
+		assert.NotNil(t, prop.MinLength)
+		assert.Equal(t, int64(3), *prop.MinLength)
+		assert.NotNil(t, prop.MaxLength)
+		assert.Equal(t, int64(50), *prop.MaxLength)
+	})
+
+	t.Run("numeric type constraints", func(t *testing.T) {
+		proc := NewProcessor(false)
+		prop := &swaggerProperty{Type: "integer"}
+		c := &SwaggerConstraints{
+			Min:              ptrFloat64(0),
+			Max:              ptrFloat64(999),
+			ExclusiveMinimum: true,
+			ExclusiveMaximum: true,
+		}
+		proc.applyConstraints(prop, c)
+
+		assert.NotNil(t, prop.Minimum)
+		assert.Equal(t, float64(0), *prop.Minimum)
+		assert.True(t, prop.ExclusiveMinimum)
+		assert.NotNil(t, prop.Maximum)
+		assert.Equal(t, float64(999), *prop.Maximum)
+		assert.True(t, prop.ExclusiveMaximum)
 	})
 
 	t.Run("format not overwritten when already set", func(t *testing.T) {
@@ -695,10 +719,10 @@ message Address {
 
 		prov := addr.Properties.Get("province")
 		assert.Equal(t, "省份 | [EN] Province", prov.Description)
-		assert.NotNil(t, prov.Minimum)
-		assert.Equal(t, float64(2), *prov.Minimum)
-		assert.NotNil(t, prov.Maximum)
-		assert.Equal(t, float64(50), *prov.Maximum)
+		assert.NotNil(t, prov.MinLength)
+		assert.Equal(t, int64(2), *prov.MinLength)
+		assert.NotNil(t, prov.MaxLength)
+		assert.Equal(t, int64(50), *prov.MaxLength)
 
 		postal := addr.Properties.Get("postal_code")
 		assert.Equal(t, "邮政编码 | [EN] Postal code", postal.Description)
@@ -1071,5 +1095,158 @@ message Msg2 {
 		nameProp := doc.Definitions["Msg2"].Properties.Get("name")
 		require.NotNil(t, nameProp)
 		assert.Equal(t, "名称", nameProp.Description)
+	})
+}
+
+func TestProcessor_DefinitionNameWithPackagePrefix(t *testing.T) {
+	protoContent := `syntax = "proto3";
+
+message TwoFaDisableRequest {
+  string code = 1;    // 验证码 @inject_tag: validate:"required,len=6"
+  string token = 2;   // 令牌 @inject_tag: validate:"required,min=10"
+}
+`
+
+	t.Run("legacy strategy: package prefix with empty separator", func(t *testing.T) {
+		protoPath := writeTempProto(t, protoContent)
+		swaggerPath := writeSwaggerYAML(t, swaggerDoc{
+			Definitions: map[string]*swaggerSchema{
+				"access_controlTwoFaDisableRequest": {
+					Type: "object",
+					Properties: newProps(
+						"code", &swaggerProperty{Type: "string", Description: "验证码"},
+						"token", &swaggerProperty{Type: "string", Description: "令牌"},
+					),
+				},
+			},
+		})
+
+		proc := NewProcessor(false)
+		require.NoError(t, proc.ProcessFile(swaggerPath, []string{protoPath}))
+
+		data, err := os.ReadFile(swaggerPath)
+		require.NoError(t, err)
+
+		var doc swaggerDoc
+		require.NoError(t, yaml.Unmarshal(data, &doc))
+		def := doc.Definitions["access_controlTwoFaDisableRequest"]
+		require.NotNil(t, def)
+
+		codeProp := def.Properties.Get("code")
+		require.NotNil(t, codeProp)
+		assert.NotNil(t, codeProp.MinLength)
+		assert.Equal(t, int64(6), *codeProp.MinLength)
+		assert.NotNil(t, codeProp.MaxLength)
+		assert.Equal(t, int64(6), *codeProp.MaxLength)
+
+		tokenProp := def.Properties.Get("token")
+		require.NotNil(t, tokenProp)
+		assert.NotNil(t, tokenProp.MinLength)
+		assert.Equal(t, int64(10), *tokenProp.MinLength)
+
+		assert.Contains(t, def.Required, "code")
+		assert.Contains(t, def.Required, "token")
+	})
+
+	t.Run("fqn strategy: dot-separated prefix", func(t *testing.T) {
+		protoPath := writeTempProto(t, protoContent)
+		swaggerPath := writeSwaggerYAML(t, swaggerDoc{
+			Definitions: map[string]*swaggerSchema{
+				"apex.api.access_control.TwoFaDisableRequest": {
+					Type: "object",
+					Properties: newProps(
+						"code", &swaggerProperty{Type: "string", Description: "验证码"},
+					),
+				},
+			},
+		})
+
+		proc := NewProcessor(false)
+		require.NoError(t, proc.ProcessFile(swaggerPath, []string{protoPath}))
+
+		data, err := os.ReadFile(swaggerPath)
+		require.NoError(t, err)
+
+		var doc swaggerDoc
+		require.NoError(t, yaml.Unmarshal(data, &doc))
+		def := doc.Definitions["apex.api.access_control.TwoFaDisableRequest"]
+		require.NotNil(t, def)
+		assert.Contains(t, def.Required, "code")
+	})
+
+	t.Run("simple/package strategy: no prefix (exact match)", func(t *testing.T) {
+		protoPath := writeTempProto(t, protoContent)
+		swaggerPath := writeSwaggerYAML(t, swaggerDoc{
+			Definitions: map[string]*swaggerSchema{
+				"TwoFaDisableRequest": {
+					Type: "object",
+					Properties: newProps(
+						"code", &swaggerProperty{Type: "string", Description: "验证码"},
+					),
+				},
+			},
+		})
+
+		proc := NewProcessor(false)
+		require.NoError(t, proc.ProcessFile(swaggerPath, []string{protoPath}))
+
+		data, err := os.ReadFile(swaggerPath)
+		require.NoError(t, err)
+
+		var doc swaggerDoc
+		require.NoError(t, yaml.Unmarshal(data, &doc))
+		def := doc.Definitions["TwoFaDisableRequest"]
+		require.NotNil(t, def)
+		assert.Contains(t, def.Required, "code")
+	})
+}
+
+func TestProcessor_SuffixMatchLongest(t *testing.T) {
+	t.Run("prefer longer message name match", func(t *testing.T) {
+		protoContent := `syntax = "proto3";
+
+message Request {
+  string id = 1;  // @inject_tag: validate:"required"
+}
+
+message DisableRequest {
+  string name = 1;  // @inject_tag: validate:"required,len=3"
+}
+`
+		protoPath := writeTempProto(t, protoContent)
+		swaggerPath := writeSwaggerYAML(t, swaggerDoc{
+			Definitions: map[string]*swaggerSchema{
+				"access_controlDisableRequest": {
+					Type: "object",
+					Properties: newProps(
+						"name", &swaggerProperty{Type: "string"},
+						"id", &swaggerProperty{Type: "string"},
+					),
+				},
+			},
+		})
+
+		proc := NewProcessor(false)
+		require.NoError(t, proc.ProcessFile(swaggerPath, []string{protoPath}))
+
+		data, err := os.ReadFile(swaggerPath)
+		require.NoError(t, err)
+
+		var doc swaggerDoc
+		require.NoError(t, yaml.Unmarshal(data, &doc))
+		def := doc.Definitions["access_controlDisableRequest"]
+		require.NotNil(t, def)
+
+		nameProp := def.Properties.Get("name")
+		require.NotNil(t, nameProp)
+		assert.NotNil(t, nameProp.MinLength)
+		assert.Equal(t, int64(3), *nameProp.MinLength)
+
+		idProp := def.Properties.Get("id")
+		require.NotNil(t, idProp)
+		assert.Nil(t, idProp.MinLength)
+
+		assert.Contains(t, def.Required, "name")
+		assert.NotContains(t, def.Required, "id")
 	})
 }

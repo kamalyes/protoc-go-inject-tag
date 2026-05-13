@@ -34,6 +34,20 @@ type Processor struct {
 	verbose bool
 }
 
+// swaggerTagIndex swagger标签索引，用于快速查找字段标签
+type swaggerTagIndex struct {
+	schemas map[string]map[string]FieldTag
+	fields  map[string]*fieldTagBucket
+}
+
+// fieldTagBucket 字段标签桶，用于存储字段标签和validate约束
+// 支持冲突检测（如多个字段有相同validate约束）
+type fieldTagBucket struct {
+	tag      FieldTag
+	validate string
+	conflict bool
+}
+
 // NewProcessor 创建swagger后处理器
 func NewProcessor(verbose bool) *Processor {
 	return &Processor{verbose: verbose}
@@ -45,22 +59,20 @@ func (p *Processor) ProcessFile(swaggerFile string, protoFiles []string) error {
 		fmt.Printf("📖 解析 proto 文件的 @inject_tag 注解...\n")
 	}
 
-	tagMap := make(map[string]map[string]FieldTag)
+	var protoTags []ProtoFieldTags
 	for _, protoFile := range protoFiles {
 		tags, err := ParseProtoFile(protoFile)
 		if err != nil {
 			return fmt.Errorf("解析 proto 文件失败 %s: %w", protoFile, err)
 		}
 		for _, t := range tags {
-			if tagMap[t.MessageName] == nil {
-				tagMap[t.MessageName] = make(map[string]FieldTag)
-			}
-			tagMap[t.MessageName][t.FieldName] = t.Tags
 			if p.verbose {
 				fmt.Printf("  发现 %s.%s → validate:%q\n", t.MessageName, t.FieldName, t.Tags.Validate)
 			}
 		}
+		protoTags = append(protoTags, tags...)
 	}
+	tagIndex := newSwaggerTagIndex(protoTags)
 
 	if p.verbose {
 		fmt.Printf("📖 读取 swagger 文件: %s\n", swaggerFile)
@@ -78,13 +90,7 @@ func (p *Processor) ProcessFile(swaggerFile string, protoFiles []string) error {
 			continue
 		}
 
-		msgTags, ok := tagMap[defName]
-		if !ok {
-			if p.stripInjectTagFromSchema(schema.Properties) {
-				modified = true
-			}
-			continue
-		}
+		msgTags, _ := tagIndex.lookupSchema(defName)
 
 		for _, entry := range *schema.Properties {
 			propName := entry.Key
@@ -93,34 +99,31 @@ func (p *Processor) ProcessFile(swaggerFile string, protoFiles []string) error {
 				continue
 			}
 
-			oldDesc := prop.Description
-			prop.Description = injectTagInDescRegex.ReplaceAllString(prop.Description, "")
-			prop.Description = strings.TrimSpace(prop.Description)
-			if prop.Description != oldDesc {
+			validateValue := extractValidateFromSwaggerText(prop.Description)
+			if validateValue == "" {
+				validateValue = extractValidateFromSwaggerText(prop.Title)
+			}
+			if validateValue == "" && msgTags != nil {
+				if ft, found := msgTags[propName]; found {
+					validateValue = ft.Validate
+				}
+			}
+
+			if stripped, changed := stripInjectTagText(prop.Description); changed {
+				prop.Description = stripped
 				modified = true
 			}
-			oldTitle := prop.Title
-			prop.Title = injectTagInDescRegex.ReplaceAllString(prop.Title, "")
-			prop.Title = strings.TrimSpace(prop.Title)
-			if prop.Title != oldTitle {
+			if stripped, changed := stripInjectTagText(prop.Title); changed {
+				prop.Title = stripped
 				modified = true
 			}
 
-			if ft, found := msgTags[propName]; found && ft.Validate != "" {
-				constraints := ParseValidateToSwagger(ft.Validate)
+			if validateValue != "" {
+				constraints := ParseValidateToSwagger(validateValue)
 				if constraints != nil {
 					p.applyConstraints(prop, constraints)
 					if constraints.Required {
-						foundReq := false
-						for _, r := range schema.Required {
-							if r == propName {
-								foundReq = true
-								break
-							}
-						}
-						if !foundReq {
-							schema.Required = append(schema.Required, propName)
-						}
+						schema.Required = appendRequired(schema.Required, propName)
 					}
 					modified = true
 					if p.verbose {
@@ -129,6 +132,10 @@ func (p *Processor) ProcessFile(swaggerFile string, protoFiles []string) error {
 				}
 			}
 		}
+	}
+
+	if p.processSwaggerParameters(doc, tagIndex) {
+		modified = true
 	}
 
 	if p.cleanupUnreferencedTags(doc) {
@@ -151,6 +158,84 @@ func (p *Processor) ProcessFile(swaggerFile string, protoFiles []string) error {
 	}
 
 	return nil
+}
+
+func newSwaggerTagIndex(tags []ProtoFieldTags) *swaggerTagIndex {
+	index := &swaggerTagIndex{
+		schemas: make(map[string]map[string]FieldTag),
+		fields:  make(map[string]*fieldTagBucket),
+	}
+	for _, tag := range tags {
+		if tag.Tags.Validate == "" {
+			continue
+		}
+		for _, schemaName := range openAPISchemaNameCandidates(tag.PackageName, tag.MessageName) {
+			if index.schemas[schemaName] == nil {
+				index.schemas[schemaName] = make(map[string]FieldTag)
+			}
+			for _, fieldName := range fieldNameCandidates(tag) {
+				index.schemas[schemaName][fieldName] = tag.Tags
+			}
+		}
+		for _, fieldName := range fieldNameCandidates(tag) {
+			index.addField(fieldName, tag.Tags)
+		}
+	}
+	return index
+}
+
+func (i *swaggerTagIndex) addField(fieldName string, tag FieldTag) {
+	if fieldName == "" || tag.Validate == "" {
+		return
+	}
+	if bucket, ok := i.fields[fieldName]; ok {
+		if bucket.validate != tag.Validate {
+			bucket.conflict = true
+		}
+		return
+	}
+	i.fields[fieldName] = &fieldTagBucket{tag: tag, validate: tag.Validate}
+}
+
+func (i *swaggerTagIndex) lookupSchema(defName string) (map[string]FieldTag, bool) {
+	if i == nil {
+		return nil, false
+	}
+	if tags, ok := i.schemas[defName]; ok {
+		return tags, true
+	}
+
+	var bestTags map[string]FieldTag
+	bestLen := 0
+	for schemaName, tags := range i.schemas {
+		if len(schemaName) <= bestLen {
+			continue
+		}
+		if strings.HasSuffix(defName, schemaName) {
+			bestTags = tags
+			bestLen = len(schemaName)
+		}
+	}
+	if bestTags != nil {
+		return bestTags, true
+	}
+	return nil, false
+}
+
+func (i *swaggerTagIndex) lookupField(fieldName string) (FieldTag, bool) {
+	if i == nil {
+		return FieldTag{}, false
+	}
+	for _, name := range parameterNameCandidates(fieldName) {
+		if bucket, ok := i.fields[name]; ok && !bucket.conflict {
+			return bucket.tag, true
+		}
+	}
+	return FieldTag{}, false
+}
+
+func parameterNameCandidates(name string) []string {
+	return uniqueStrings([]string{name, jsonCamelCase(name)})
 }
 
 // cleanupUnreferencedTags 清理顶层tags中未在paths下任何operation引用的标签
@@ -219,26 +304,88 @@ func (p *Processor) stripInjectTagFromSchema(props *SchemaProperties) bool {
 	return modified
 }
 
+func stripInjectTagText(text string) (string, bool) {
+	stripped := injectTagInDescRegex.ReplaceAllString(text, "")
+	stripped = strings.TrimSpace(stripped)
+	return stripped, stripped != text
+}
+
+func extractValidateFromSwaggerText(text string) string {
+	tagLocs := injectTagRegexp.FindAllStringIndex(text, -1)
+	for _, loc := range tagLocs {
+		tagValue := extractTagValue(text[loc[1]:])
+		if tagValue == "" {
+			continue
+		}
+		if value := parseGoTagString(tagValue)["validate"]; value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func appendRequired(required []string, fieldName string) []string {
+	for _, item := range required {
+		if item == fieldName {
+			return required
+		}
+	}
+	return append(required, fieldName)
+}
+
+func (p *Processor) processSwaggerParameters(doc *swaggerDoc, index *swaggerTagIndex) bool {
+	if doc.Paths == nil {
+		return false
+	}
+
+	modified := false
+	for _, pd := range *doc.Paths {
+		item := pd.PathItemObject
+		if item == nil {
+			continue
+		}
+		for _, op := range []*swaggerOperation{item.Get, item.Delete, item.Post, item.Put, item.Patch, item.Head, item.Options} {
+			if op == nil {
+				continue
+			}
+			for _, param := range op.Parameters {
+				if param == nil {
+					continue
+				}
+				validateValue := extractValidateFromSwaggerText(param.Description)
+				if validateValue == "" {
+					if ft, found := index.lookupField(param.Name); found {
+						validateValue = ft.Validate
+					}
+				}
+				if stripped, changed := stripInjectTagText(param.Description); changed {
+					param.Description = stripped
+					modified = true
+				}
+				if validateValue == "" {
+					continue
+				}
+				constraints := ParseValidateToSwagger(validateValue)
+				if constraints == nil {
+					continue
+				}
+				p.applyParameterConstraints(param, constraints)
+				if constraints.Required && param.In != "path" {
+					param.Required = true
+				}
+				modified = true
+				if p.verbose {
+					fmt.Printf("  鉁?parameter %s 鈫?宸叉敞鍏ョ害鏉焅n", param.Name)
+				}
+			}
+		}
+	}
+	return modified
+}
+
 // applyConstraints 将SwaggerConstraints应用到swagger属性上
 func (p *Processor) applyConstraints(prop *swaggerProperty, c *SwaggerConstraints) {
-	if c.MinLength != nil {
-		prop.MinLength = c.MinLength
-	}
-	if c.MaxLength != nil {
-		prop.MaxLength = c.MaxLength
-	}
-	if c.Min != nil {
-		prop.Minimum = c.Min
-	}
-	if c.ExclusiveMinimum {
-		prop.ExclusiveMinimum = true
-	}
-	if c.Max != nil {
-		prop.Maximum = c.Max
-	}
-	if c.ExclusiveMaximum {
-		prop.ExclusiveMaximum = true
-	}
+	p.applyPropertyRangeConstraints(prop, c)
 	if c.Pattern != "" {
 		prop.Pattern = c.Pattern
 	}
@@ -258,4 +405,142 @@ func (p *Processor) applyConstraints(prop *swaggerProperty, c *SwaggerConstraint
 	if c.MaxItems != nil {
 		prop.MaxItems = c.MaxItems
 	}
+	if c.Items != nil && prop.Items != nil {
+		p.applyConstraints(prop.Items, c.Items)
+	}
+}
+
+func (p *Processor) applyPropertyRangeConstraints(prop *swaggerProperty, c *SwaggerConstraints) {
+	switch schemaConstraintKind(prop.Type) {
+	case "string":
+		if c.MinLength != nil {
+			prop.MinLength = c.MinLength
+		}
+		if c.MaxLength != nil {
+			prop.MaxLength = c.MaxLength
+		}
+		if c.Min != nil {
+			prop.MinLength = floatToInt64(c.Min)
+		}
+		if c.Max != nil {
+			prop.MaxLength = floatToInt64(c.Max)
+		}
+	case "array":
+		if c.MinLength != nil {
+			prop.MinItems = c.MinLength
+		}
+		if c.MaxLength != nil {
+			prop.MaxItems = c.MaxLength
+		}
+		if c.Min != nil {
+			prop.MinItems = floatToInt64(c.Min)
+		}
+		if c.Max != nil {
+			prop.MaxItems = floatToInt64(c.Max)
+		}
+	default:
+		if c.Min != nil {
+			prop.Minimum = c.Min
+		}
+		if c.Max != nil {
+			prop.Maximum = c.Max
+		}
+		if c.ExclusiveMinimum {
+			prop.ExclusiveMinimum = true
+		}
+		if c.ExclusiveMaximum {
+			prop.ExclusiveMaximum = true
+		}
+	}
+}
+
+func (p *Processor) applyParameterConstraints(param *swaggerParameter, c *SwaggerConstraints) {
+	p.applyParameterRangeConstraints(param, c)
+	if c.Pattern != "" {
+		param.Pattern = c.Pattern
+	}
+	if c.Format != "" && param.Format == "" {
+		param.Format = c.Format
+	}
+	if len(c.Enum) > 0 {
+		enumVals := make([]interface{}, len(c.Enum))
+		for i, e := range c.Enum {
+			enumVals[i] = e
+		}
+		param.Enum = enumVals
+	}
+	if c.MinItems != nil {
+		param.MinItems = c.MinItems
+	}
+	if c.MaxItems != nil {
+		param.MaxItems = c.MaxItems
+	}
+	if c.Items != nil && param.Items != nil {
+		p.applyConstraints(param.Items, c.Items)
+	}
+}
+
+func (p *Processor) applyParameterRangeConstraints(param *swaggerParameter, c *SwaggerConstraints) {
+	switch schemaConstraintKind(param.Type) {
+	case "string":
+		if c.MinLength != nil {
+			param.MinLength = c.MinLength
+		}
+		if c.MaxLength != nil {
+			param.MaxLength = c.MaxLength
+		}
+		if c.Min != nil {
+			param.MinLength = floatToInt64(c.Min)
+		}
+		if c.Max != nil {
+			param.MaxLength = floatToInt64(c.Max)
+		}
+	case "array":
+		if c.MinLength != nil {
+			param.MinItems = c.MinLength
+		}
+		if c.MaxLength != nil {
+			param.MaxItems = c.MaxLength
+		}
+		if c.Min != nil {
+			param.MinItems = floatToInt64(c.Min)
+		}
+		if c.Max != nil {
+			param.MaxItems = floatToInt64(c.Max)
+		}
+	default:
+		if c.Min != nil {
+			param.Minimum = c.Min
+		}
+		if c.Max != nil {
+			param.Maximum = c.Max
+		}
+		if c.ExclusiveMinimum {
+			param.ExclusiveMinimum = true
+		}
+		if c.ExclusiveMaximum {
+			param.ExclusiveMaximum = true
+		}
+	}
+}
+
+func schemaConstraintKind(schemaType string) string {
+	switch schemaType {
+	case "string":
+		return "string"
+	case "array":
+		return "array"
+	case "integer", "number":
+		return "number"
+	default:
+		return ""
+	}
+}
+
+func floatToInt64(v *float64) *int64 {
+	if v == nil {
+		return nil
+	}
+	i := int64(*v)
+	return &i
 }

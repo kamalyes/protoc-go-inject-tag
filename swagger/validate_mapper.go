@@ -32,6 +32,7 @@ type SwaggerConstraints struct {
 	Format           string   // Swagger格式（email/uri/uuid等）
 	MinItems         *int64   // 数组最小元素数
 	MaxItems         *int64   // 数组最大元素数
+	Items            *SwaggerConstraints
 }
 
 type ruleHandler func(c *SwaggerConstraints, value string)
@@ -92,14 +93,22 @@ func ParseValidateToSwagger(validateStr string) *SwaggerConstraints {
 	}
 
 	c := &SwaggerConstraints{}
+	target := c
 	for _, rule := range splitRules(validateStr) {
 		rule = strings.TrimSpace(rule)
 		if rule == "" {
 			continue
 		}
 		key, value := splitRule(rule)
+		if key == "dive" {
+			if c.Items == nil {
+				c.Items = &SwaggerConstraints{}
+			}
+			target = c.Items
+			continue
+		}
 		if handler, ok := ruleHandlers[key]; ok {
-			handler(c, value)
+			handler(target, value)
 		}
 	}
 
