@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 
 	"github.com/kamalyes/protoc-go-inject-tag/injector"
@@ -93,7 +94,7 @@ func init() {
 
 func run(cmd *cobra.Command, args []string) error {
 	if showVersion {
-		fmt.Printf("%s\n", Version)
+		fmt.Printf("%s\n", versionText())
 		return nil
 	}
 
@@ -152,6 +153,42 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+func versionText() string {
+	if Version != "" && Version != "dev" {
+		return Version
+	}
+
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return Version
+	}
+
+	if info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return info.Main.Version
+	}
+
+	var revision string
+	var modified bool
+	for _, setting := range info.Settings {
+		switch setting.Key {
+		case "vcs.revision":
+			revision = setting.Value
+		case "vcs.modified":
+			modified = setting.Value == "true"
+		}
+	}
+	if revision == "" {
+		return Version
+	}
+	if len(revision) > 12 {
+		revision = revision[:12]
+	}
+	if modified {
+		return revision + "-dirty"
+	}
+	return revision
 }
 
 func runSwagger(cmd *cobra.Command, args []string) error {
