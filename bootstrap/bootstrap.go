@@ -33,6 +33,9 @@ var (
 	swaggerInput string
 	swaggerFile  string
 	swaggerProto string
+
+	checkProtoDir string
+	checkInput    string
 )
 
 // Version can be injected at build time, e.g.:
@@ -90,6 +93,26 @@ func init() {
 	swaggerCmd.Flags().StringVar(&swaggerProto, "proto-dir", "", "proto 目录（递归扫描 .proto 文件）")
 	swaggerCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "显示详细输出")
 	rootCmd.AddCommand(swaggerCmd)
+
+	checkCmd := &cobra.Command{
+		Use:   "check",
+		Short: "校验 swagger 与 proto @inject_tag 的 required 是否一致",
+		Long: `check 子命令用于检测 swagger query 参数是否存在 validate 穿透误标
+
+功能：
+  - 按 operationId 绑定 RPC request message，避免跨 message 字段名误匹配
+  - 检测 query 参数 required 与 proto validate:"required" 是否一致
+  - 忽略 path 参数（OpenAPI 固有必填）
+
+示例：
+  protoc-go-inject-tag check --proto-dir=./proto/system
+  protoc-go-inject-tag check --proto-dir=./proto`,
+		RunE: runCheck,
+	}
+	checkCmd.Flags().StringVarP(&checkInput, "input", "i", "", "proto 目录或 glob（与 --proto-dir 二选一）")
+	checkCmd.Flags().StringVar(&checkProtoDir, "proto-dir", "", "proto 目录（递归扫描 .proto 与 swagger）")
+	checkCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "显示详细输出")
+	rootCmd.AddCommand(checkCmd)
 }
 
 func run(cmd *cobra.Command, args []string) error {
@@ -279,6 +302,110 @@ func runSwagger(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("\n✅ swagger 注入处理完成\n")
 	return nil
+}
+
+func runCheck(cmd *cobra.Command, args []string) error {
+	if checkInput == "" && checkProtoDir == "" {
+		return fmt.Errorf("必须指定 --input 或 --proto-dir 参数")
+	}
+
+	scanRoot := checkProtoDir
+	if scanRoot == "" {
+		scanRoot = checkInput
+	}
+
+	var protoFiles, swaggerFiles []string
+	var err error
+
+	if info, statErr := os.Stat(scanRoot); statErr == nil && info.IsDir() {
+		base, absErr := filepath.Abs(scanRoot)
+		if absErr != nil {
+			return absErr
+		}
+		protoFiles, swaggerFiles, err = swagger.CollectProtoSwaggerFiles(base)
+		if err != nil {
+			return fmt.Errorf("遍历目录失败: %w", err)
+		}
+	} else {
+		protoFiles, err = findFiles(checkInput)
+		if err != nil {
+			return fmt.Errorf("查找 proto 文件失败: %w", err)
+		}
+		if len(protoFiles) == 0 {
+			return fmt.Errorf("没有找到匹配的 proto 文件: %s", checkInput)
+		}
+		repoRoot := findCheckBaseDir(filepath.Dir(protoFiles[0]))
+		protoFiles, swaggerFiles, err = swagger.CollectProtoSwaggerFiles(filepath.Join(repoRoot, "proto"))
+		if err != nil {
+			return fmt.Errorf("遍历 proto 目录失败: %w", err)
+		}
+		scanRoot = repoRoot
+	}
+
+	if len(protoFiles) == 0 {
+		return fmt.Errorf("没有找到 proto 文件")
+	}
+	if len(swaggerFiles) == 0 {
+		return fmt.Errorf("没有找到 swagger 文件")
+	}
+
+	if verbose {
+		fmt.Printf("检查 %d 个 proto 与 %d 个 swagger 文件\n", len(protoFiles), len(swaggerFiles))
+	}
+
+	report, err := swagger.RunCheck(swagger.CheckOptions{
+		ProtoFiles:   protoFiles,
+		SwaggerFiles: swaggerFiles,
+		Verbose:      verbose,
+	})
+	if err != nil {
+		return err
+	}
+
+	baseDir := findCheckBaseDir(scanRoot)
+	swagger.PrintCheckReport(report, baseDir)
+
+	if report.HasErrors() {
+		return fmt.Errorf("发现 %d 处 query 穿透误标", len(report.QueryPenetration))
+	}
+	return nil
+}
+
+func findCheckBaseDir(start string) string {
+	dir := start
+	if dir == "" {
+		var err error
+		dir, err = os.Getwd()
+		if err != nil {
+			return ""
+		}
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			if _, err := os.Stat(filepath.Join(dir, "proto")); err == nil {
+				return dir
+			}
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return start
+}
+
+func uniqueStrings(values []string) []string {
+	seen := make(map[string]bool, len(values))
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		if v == "" || seen[v] {
+			continue
+		}
+		seen[v] = true
+		out = append(out, v)
+	}
+	return out
 }
 
 // findFiles 查找匹配的文件，支持 ** 递归匹配
