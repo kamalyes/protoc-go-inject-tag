@@ -42,6 +42,14 @@ type ProtoFieldTags struct {
 // 支持同一行出现多个注解：@inject_tags: json:"x" @gotags: validate:"required"
 var injectTagRegexp = regexp.MustCompile(`@(?:inject_tag|gotags?|inject_tags?):\s*`)
 
+// protoFieldParseState 解析 proto 文件状态
+type protoFieldParseState struct {
+	result       []ProtoFieldTags
+	packageName  string
+	currentMsg   string
+	msgBodyDepth int
+}
+
 // ParseProtoFile 解析proto文件，提取所有带@inject_tag注解的字段
 func ParseProtoFile(filename string) ([]ProtoFieldTags, error) {
 	f, err := os.Open(filename)
@@ -50,94 +58,99 @@ func ParseProtoFile(filename string) ([]ProtoFieldTags, error) {
 	}
 	defer f.Close()
 
-	var (
-		result       []ProtoFieldTags
-		packageName  string
-		currentMsg   string
-		msgBodyDepth int
-	)
-
+	state := &protoFieldParseState{}
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
-		line := scanner.Text()
-		trimmed := strings.TrimSpace(line)
-
-		// 跳过纯注释行和空行
-		if strings.HasPrefix(trimmed, "//") || trimmed == "" {
-			continue
-		}
-
-		if strings.HasPrefix(trimmed, "package ") {
-			packageName = extractPackageName(trimmed)
-			continue
-		}
-
-		// 检测message定义开始
-		if strings.HasPrefix(trimmed, "message ") {
-			parts := strings.Fields(trimmed)
-			if len(parts) >= 2 {
-				currentMsg = parts[1]
-				msgBodyDepth = 0
-			}
-		}
-
-		if currentMsg == "" {
-			continue
-		}
-
-		// 跟踪message大括号深度
-		msgBodyDepth += strings.Count(trimmed, "{") - strings.Count(trimmed, "}")
-		if msgBodyDepth <= 0 {
-			currentMsg = ""
-			continue
-		}
-
-		// 查找所有 @inject_tag / @gotags 注解位置
-		tagLocs := injectTagRegexp.FindAllStringIndex(line, -1)
-		if len(tagLocs) == 0 {
-			continue
-		}
-
-		// 提取字段名（从注解之前的代码部分）
-		codePart := line[:tagLocs[0][0]]
-		fieldName := extractFieldName(codePart)
-		if fieldName == "" {
-			continue
-		}
-		jsonName := extractProtoJSONName(codePart)
-
-		// 合并同一行所有标签
-		var allGoTags []string
-		for _, loc := range tagLocs {
-			tagValueStart := loc[1]
-			tagValue := extractTagValue(line[tagValueStart:])
-			if tagValue != "" {
-				allGoTags = append(allGoTags, tagValue)
-			}
-		}
-
-		mergedTagStr := strings.Join(allGoTags, " ")
-
-		tags := FieldTag{
-			GoTags: mergedTagStr,
-		}
-
-		// 从合并后的标签中提取validate值
-		goTagParts := parseGoTagString(mergedTagStr)
-		if v, ok := goTagParts["validate"]; ok {
-			tags.Validate = v
-		}
-
-		result = append(result, ProtoFieldTags{
-			PackageName: packageName,
-			MessageName: currentMsg,
-			FieldName:   fieldName,
-			JSONName:    jsonName,
-			Tags:        tags,
-		})
+		state.processLine(scanner.Text())
 	}
+	return state.result, scanner.Err()
+}
 
-	return result, scanner.Err()
+// processLine 处理一行 proto 字段定义
+func (s *protoFieldParseState) processLine(line string) {
+	trimmed := strings.TrimSpace(line)
+	if isSkippableProtoLine(trimmed) {
+		return
+	}
+	if s.tryPackage(trimmed) {
+		return
+	}
+	s.tryMessageStart(trimmed)
+	if s.currentMsg == "" {
+		return
+	}
+	s.updateMessageDepth(trimmed)
+	if s.currentMsg == "" {
+		return
+	}
+	s.tryAppendFieldTag(line)
+}
+
+// tryPackage 尝试解析 proto 包定义
+func (s *protoFieldParseState) tryPackage(trimmed string) bool {
+	if !strings.HasPrefix(trimmed, "package ") {
+		return false
+	}
+	s.packageName = extractPackageName(trimmed)
+	return true
+}
+
+// tryMessageStart 尝试解析 proto 消息定义
+func (s *protoFieldParseState) tryMessageStart(trimmed string) {
+	if !strings.HasPrefix(trimmed, "message ") {
+		return
+	}
+	parts := strings.Fields(trimmed)
+	if len(parts) >= 2 {
+		s.currentMsg = parts[1]
+		s.msgBodyDepth = 0
+	}
+}
+
+func (s *protoFieldParseState) updateMessageDepth(trimmed string) {
+	s.msgBodyDepth += strings.Count(trimmed, "{") - strings.Count(trimmed, "}")
+	if s.msgBodyDepth <= 0 {
+		s.currentMsg = ""
+	}
+}
+
+func (s *protoFieldParseState) tryAppendFieldTag(line string) {
+	tagLocs := injectTagRegexp.FindAllStringIndex(line, -1)
+	if len(tagLocs) == 0 {
+		return
+	}
+	codePart := line[:tagLocs[0][0]]
+	fieldName := extractFieldName(codePart)
+	if fieldName == "" {
+		return
+	}
+	s.result = append(s.result, ProtoFieldTags{
+		PackageName: s.packageName,
+		MessageName: s.currentMsg,
+		FieldName:   fieldName,
+		JSONName:    extractProtoJSONName(codePart),
+		Tags:        buildFieldTagFromLine(line, tagLocs),
+	})
+}
+
+// buildFieldTagFromLine 从一行proto字段定义中构建 FieldTag 结构体
+func buildFieldTagFromLine(line string, tagLocs [][]int) FieldTag {
+	mergedTagStr := mergeInjectTagValues(line, tagLocs)
+	tags := FieldTag{GoTags: mergedTagStr}
+	if v, ok := parseGoTagString(mergedTagStr)["validate"]; ok {
+		tags.Validate = v
+	}
+	return tags
+}
+
+func mergeInjectTagValues(line string, tagLocs [][]int) string {
+	var allGoTags []string
+	for _, loc := range tagLocs {
+		if tagValue := extractTagValue(line[loc[1]:]); tagValue != "" {
+			allGoTags = append(allGoTags, tagValue)
+		}
+	}
+	return strings.Join(allGoTags, " ")
 }
 
 func extractPackageName(line string) string {
@@ -217,45 +230,57 @@ func extractProtoJSONName(line string) string {
 func parseGoTagString(tagStr string) map[string]string {
 	result := make(map[string]string)
 	tagStr = strings.TrimSpace(tagStr)
-
 	for len(tagStr) > 0 {
 		tagStr = strings.TrimSpace(tagStr)
 		if tagStr == "" {
 			break
 		}
-
-		spaceIdx := strings.Index(tagStr, " ")
-		colonIdx := strings.Index(tagStr, ":")
-
-		if colonIdx >= 0 && (spaceIdx < 0 || colonIdx < spaceIdx) {
-			key := tagStr[:colonIdx]
-			tagStr = tagStr[colonIdx+1:]
-
-			if len(tagStr) > 0 && tagStr[0] == '"' {
-				endQuote := strings.Index(tagStr[1:], "\"")
-				if endQuote >= 0 {
-					result[key] = tagStr[1 : endQuote+1]
-					tagStr = tagStr[endQuote+2:]
-				} else {
-					result[key] = tagStr[1:]
-					tagStr = ""
-				}
-			} else {
-				end := strings.Index(tagStr, " ")
-				if end >= 0 {
-					result[key] = tagStr[:end]
-					tagStr = tagStr[end+1:]
-				} else {
-					result[key] = tagStr
-					tagStr = ""
-				}
-			}
-		} else if spaceIdx >= 0 {
-			tagStr = tagStr[spaceIdx+1:]
-		} else {
+		key, value, rest, ok := parseNextGoTagPair(tagStr)
+		if ok {
+			result[key] = value
+		}
+		if rest == "" {
 			break
 		}
+		tagStr = rest
 	}
-
 	return result
+}
+
+// parseNextGoTagPair 解析下一个 Go struct tag 键值对
+func parseNextGoTagPair(tagStr string) (key, value, rest string, ok bool) {
+	spaceIdx := strings.Index(tagStr, " ")
+	colonIdx := strings.Index(tagStr, ":")
+	if colonIdx < 0 || (spaceIdx >= 0 && spaceIdx < colonIdx) {
+		if spaceIdx < 0 {
+			return "", "", "", false
+		}
+		return "", "", strings.TrimSpace(tagStr[spaceIdx+1:]), false
+	}
+	key = tagStr[:colonIdx]
+	remainder := tagStr[colonIdx+1:]
+	if len(remainder) > 0 && remainder[0] == '"' {
+		value, rest = parseQuotedGoTagValue(remainder)
+		return key, value, rest, true
+	}
+	value, rest = parseUnquotedGoTagValue(remainder)
+	return key, value, rest, true
+}
+
+
+// parseQuotedGoTagValue 解析被引号包裹的 Go struct tag 值
+func parseQuotedGoTagValue(tagStr string) (value, rest string) {
+	endQuote := strings.Index(tagStr[1:], "\"")
+	if endQuote >= 0 {
+		return tagStr[1 : endQuote+1], tagStr[endQuote+2:]
+	}
+	return tagStr[1:], ""
+}
+
+// parseUnquotedGoTagValue 解析未被引号包裹的 Go struct tag 值
+func parseUnquotedGoTagValue(tagStr string) (value, rest string) {
+	if end := strings.Index(tagStr, " "); end >= 0 {
+		return tagStr[:end], tagStr[end+1:]
+	}
+	return tagStr, ""
 }
