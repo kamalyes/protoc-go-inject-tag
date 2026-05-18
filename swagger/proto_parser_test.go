@@ -2,9 +2,9 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2026-05-09 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2026-05-09 12:19:32
+ * @LastEditTime: 2026-05-18 23:30:00
  * @FilePath: \protoc-go-inject-tag\swagger\proto_parser_test.go
- * @Description:
+ * @Description: Proto文件解析器测试，覆盖 message/field 标签提取和 service/rpc 定义提取
  *
  * Copyright (c) 2026 by kamalyes, All Rights Reserved.
  */
@@ -18,6 +18,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Message/Field 标签解析测试
+// ══════════════════════════════════════════════════════════════════════════════
 
 func TestParseProtoFile(t *testing.T) {
 	t.Run("basic inject_tag", func(t *testing.T) {
@@ -248,6 +252,41 @@ message GoTagsOnly {
 	})
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// Service/RPC 解析测试
+// ══════════════════════════════════════════════════════════════════════════════
+
+func TestParseProtoRPCs(t *testing.T) {
+	content := `syntax = "proto3";
+package system;
+
+service SystemService {
+  rpc DictGroupCreate(DictGroupCreateRequest) returns (DictGroupCreateResponse) {
+    option (google.api.http) = { post: "/v1/groups" body: "*" };
+  }
+  rpc DictGroupList(DictGroupListRequest) returns (DictGroupListResponse) {
+    option (google.api.http) = { get: "/v1/groups" };
+  }
+}
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.proto")
+	require.NoError(t, os.WriteFile(path, []byte(content), 0644))
+
+	rpcs, err := ParseProtoRPCs(path)
+	require.NoError(t, err)
+	require.Len(t, rpcs, 2)
+
+	assert.Equal(t, "system", rpcs[0].PackageName)
+	assert.Equal(t, "SystemService_DictGroupCreate", rpcs[0].OperationID)
+	assert.Equal(t, "DictGroupListRequest", rpcs[1].RequestType)
+	assert.Equal(t, "SystemService_DictGroupList", rpcs[1].OperationID)
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 辅助函数测试
+// ══════════════════════════════════════════════════════════════════════════════
+
 func TestExtractFieldName(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -347,6 +386,16 @@ func TestExtractTagValue(t *testing.T) {
 		assert.Equal(t, "", val)
 	})
 }
+
+func TestShortTypeName(t *testing.T) {
+	assert.Equal(t, "Type", shortTypeName("pkg.Type"))
+	assert.Equal(t, "Type", shortTypeName("Type"))
+	assert.Equal(t, "NestedType", shortTypeName("a.b.NestedType"))
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 测试辅助函数
+// ══════════════════════════════════════════════════════════════════════════════
 
 func writeTempProto(t *testing.T, content string) string {
 	t.Helper()

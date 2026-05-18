@@ -12,6 +12,8 @@ package swagger
 
 import "strings"
 
+// openAPISchemaNameCandidates 生成 OpenAPI schema 名称的候选列表
+// 包含原始名称、包名前缀组合等多种形式，用于匹配 swagger definition
 func openAPISchemaNameCandidates(packageName, messageName string) []string {
 	if messageName == "" {
 		return nil
@@ -35,6 +37,7 @@ func openAPISchemaNameCandidates(packageName, messageName string) []string {
 	return uniqueStrings(candidates)
 }
 
+// legacyOpenAPIName 生成 grpc-gateway 风格的 OpenAPI 名称（包名部分首字母大写拼接）
 func legacyOpenAPIName(packageParts []string, messageName string) string {
 	components := append(append([]string{}, packageParts...), messageName)
 	firstNonEmpty := -1
@@ -52,6 +55,8 @@ func legacyOpenAPIName(packageParts []string, messageName string) string {
 	return strings.Join(components, "")
 }
 
+// fieldNameCandidates 生成字段名称的候选列表，用于匹配 swagger property
+// 包含原始名、jsonCamelCase 名、json tag 名等
 func fieldNameCandidates(field ProtoFieldTags) []string {
 	candidates := []string{field.FieldName, jsonCamelCase(field.FieldName)}
 	if field.JSONName != "" {
@@ -66,6 +71,7 @@ func fieldNameCandidates(field ProtoFieldTags) []string {
 	return uniqueStrings(candidates)
 }
 
+// jsonCamelCase 将 snake_case 转换为 lowerCamelCase
 func jsonCamelCase(s string) string {
 	var b []byte
 	wasUnderscore := false
@@ -82,6 +88,7 @@ func jsonCamelCase(s string) string {
 	return string(b)
 }
 
+// upperFirstASCII 将字符串首字母转为大写
 func upperFirstASCII(s string) string {
 	if s == "" {
 		return s
@@ -92,6 +99,7 @@ func upperFirstASCII(s string) string {
 	return s
 }
 
+// uniqueStrings 去除字符串切片中的重复项和空值
 func uniqueStrings(values []string) []string {
 	seen := make(map[string]bool, len(values))
 	unique := make([]string, 0, len(values))

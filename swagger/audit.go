@@ -1,8 +1,8 @@
 /*
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2026-05-09 00:00:00
- * @LastEditors: Lion-3625 lsheng758@gmail.com
- * @LastEditTime: 2026-05-18 21:53:38
+ * @LastEditors: kamalyes 501893067@qq.com
+ * @LastEditTime: 2026-05-18 23:33:51
  * @FilePath: \protoc-go-inject-tag\swagger\audit.go
  * @Description: Swagger与proto validate一致性检查
  *
@@ -40,7 +40,8 @@ type AuditIssue struct {
 	Definitions []DefinitionRequiredIssue
 }
 
-// BuildMessageValidateIndex messageName -> fieldName -> validate
+// BuildMessageValidateIndex 构建消息名称到字段校验规则的索引
+// 返回 messageName -> fieldName -> validate 的映射
 func BuildMessageValidateIndex(protoFiles []string) (map[string]map[string]string, error) {
 	index := make(map[string]map[string]string)
 	for _, pf := range protoFiles {
@@ -53,6 +54,7 @@ func BuildMessageValidateIndex(protoFiles []string) (map[string]map[string]strin
 	return index, nil
 }
 
+// mergeProtoFieldTags 将解析出的字段标签合并到索引中
 func mergeProtoFieldTags(index map[string]map[string]string, tags []ProtoFieldTags) {
 	for _, t := range tags {
 		if t.Tags.Validate == "" {
@@ -65,7 +67,7 @@ func mergeProtoFieldTags(index map[string]map[string]string, tags []ProtoFieldTa
 	}
 }
 
-// AuditSwaggerFile 对比单个 swagger 与 proto 索引
+// AuditSwaggerFile 对比单个 swagger 文件与 proto 索引，检查 required 一致性
 func AuditSwaggerFile(swaggerFile string, messages map[string]map[string]string, operations map[string]ProtoRPC) (AuditIssue, error) {
 	doc, _, err := ReadSwaggerFile(swaggerFile)
 	if err != nil {
@@ -78,6 +80,7 @@ func AuditSwaggerFile(swaggerFile string, messages map[string]map[string]string,
 	return result, nil
 }
 
+// auditPathParameters 审计路径参数的 required 一致性
 func auditPathParameters(doc *swaggerDoc, swaggerFile string, messages map[string]map[string]string, operations map[string]ProtoRPC, result *AuditIssue) {
 	if doc.Paths == nil {
 		return
@@ -87,6 +90,7 @@ func auditPathParameters(doc *swaggerDoc, swaggerFile string, messages map[strin
 	}
 }
 
+// auditPathItem 审计单个路径项下的所有操作
 func auditPathItem(item *swaggerPathItemObject, swaggerFile string, messages map[string]map[string]string, operations map[string]ProtoRPC, result *AuditIssue) {
 	if item == nil {
 		return
@@ -96,10 +100,12 @@ func auditPathItem(item *swaggerPathItemObject, swaggerFile string, messages map
 	}
 }
 
+// pathItemOperations 收集路径项下的所有 HTTP 方法操作
 func pathItemOperations(item *swaggerPathItemObject) []*swaggerOperation {
 	return []*swaggerOperation{item.Get, item.Delete, item.Post, item.Put, item.Patch, item.Head, item.Options}
 }
 
+// auditOperation 审计单个操作的参数 required 一致性
 func auditOperation(op *swaggerOperation, swaggerFile string, messages map[string]map[string]string, operations map[string]ProtoRPC, result *AuditIssue) {
 	if op == nil {
 		return
@@ -114,6 +120,7 @@ func auditOperation(op *swaggerOperation, swaggerFile string, messages map[strin
 	}
 }
 
+// maybeRecordParameterMismatch 检查参数的 required 状态是否与 proto 一致，不一致则记录
 func maybeRecordParameterMismatch(result *AuditIssue, swaggerFile, operationID, requestType string, fields map[string]string, param *swaggerParameter) {
 	if !shouldAuditParameter(param) {
 		return
@@ -134,6 +141,7 @@ func maybeRecordParameterMismatch(result *AuditIssue, swaggerFile, operationID, 
 	})
 }
 
+// shouldAuditParameter 判断参数是否需要审计（仅 query/path 类型）
 func shouldAuditParameter(param *swaggerParameter) bool {
 	if param == nil {
 		return false
@@ -141,10 +149,12 @@ func shouldAuditParameter(param *swaggerParameter) bool {
 	return isAuditableParameter(param.In)
 }
 
+// isAuditableParameter 判断参数位置是否可审计
 func isAuditableParameter(paramIn string) bool {
 	return paramIn == "query" || paramIn == "path"
 }
 
+// auditDefinitions 审计 definitions 中的 required 字段一致性
 func auditDefinitions(doc *swaggerDoc, swaggerFile string, messages map[string]map[string]string, result *AuditIssue) {
 	if doc.Definitions == nil {
 		return
@@ -154,6 +164,7 @@ func auditDefinitions(doc *swaggerDoc, swaggerFile string, messages map[string]m
 	}
 }
 
+// auditDefinitionSchema 审计单个 definition 的 required 字段
 func auditDefinitionSchema(defName string, schema *swaggerSchema, swaggerFile string, messages map[string]map[string]string, result *AuditIssue) {
 	if !schemaHasRequiredFields(schema) {
 		return
@@ -168,10 +179,12 @@ func auditDefinitionSchema(defName string, schema *swaggerSchema, swaggerFile st
 	}
 }
 
+// schemaHasRequiredFields 判断 schema 是否包含 required 字段列表
 func schemaHasRequiredFields(schema *swaggerSchema) bool {
 	return schema != nil && len(schema.Required) > 0
 }
 
+// requiredFieldSet 将 required 字段列表转为集合
 func requiredFieldSet(required []string) map[string]bool {
 	set := make(map[string]bool, len(required))
 	for _, f := range required {
@@ -180,6 +193,7 @@ func requiredFieldSet(required []string) map[string]bool {
 	return set
 }
 
+// maybeRecordDefinitionMismatch 检查 definition 字段的 required 状态是否与 proto 一致
 func maybeRecordDefinitionMismatch(result *AuditIssue, swaggerFile, defName, fieldName, validate string, inRequired bool) {
 	want := hasValidateRequired(validate)
 	if inRequired == want {
@@ -195,6 +209,7 @@ func maybeRecordDefinitionMismatch(result *AuditIssue, swaggerFile, defName, fie
 	})
 }
 
+// expectedParamRequired 根据 proto validate 规则判断参数是否应为 required
 func expectedParamRequired(fields map[string]string, paramName string) bool {
 	if fields == nil {
 		return false
@@ -205,6 +220,7 @@ func expectedParamRequired(fields map[string]string, paramName string) bool {
 	return hasValidateRequired(fields[paramName])
 }
 
+// lookupFieldValidate 查找字段的 validate 规则值
 func lookupFieldValidate(fields map[string]string, paramName string) string {
 	if fields == nil {
 		return ""
@@ -215,6 +231,7 @@ func lookupFieldValidate(fields map[string]string, paramName string) string {
 	return fields[paramName]
 }
 
+// hasValidateRequired 判断 validate 规则中是否包含 required
 func hasValidateRequired(validate string) bool {
 	if validate == "" {
 		return false
@@ -223,6 +240,7 @@ func hasValidateRequired(validate string) bool {
 	return c != nil && c.Required
 }
 
+// findMessageForDefinition 根据 definition 名称查找最匹配的 proto message
 func findMessageForDefinition(defName string, messages map[string]map[string]string) string {
 	var best string
 	bestLen := 0
@@ -237,6 +255,7 @@ func findMessageForDefinition(defName string, messages map[string]map[string]str
 	return best
 }
 
+// longestCandidateMatch 在 definition 名称中查找与候选名称最长匹配的长度
 func longestCandidateMatch(defName, msgName string) int {
 	bestLen := 0
 	for _, cand := range openAPISchemaNameCandidates("", msgName) {
@@ -247,6 +266,7 @@ func longestCandidateMatch(defName, msgName string) int {
 	return bestLen
 }
 
+// matchedCandidateLength 返回候选名称与 definition 名称匹配的长度，不匹配返回 0
 func matchedCandidateLength(defName, cand string) int {
 	if !definitionMatchesCandidate(defName, cand) {
 		return 0
@@ -254,6 +274,7 @@ func matchedCandidateLength(defName, cand string) int {
 	return len(cand)
 }
 
+// definitionMatchesCandidate 判断 definition 名称是否匹配候选名称（完全匹配或后缀匹配）
 func definitionMatchesCandidate(defName, cand string) bool {
 	if cand == "" {
 		return false

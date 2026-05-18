@@ -1,8 +1,8 @@
 /*
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2026-05-09 00:00:00
- * @LastEditors: Lion-3625 lsheng758@gmail.com
- * @LastEditTime: 2026-05-18 21:58:15
+ * @LastEditors: kamalyes 501893067@qq.com
+ * @LastEditTime: 2026-05-18 23:01:33
  * @FilePath: /protoc-go-inject-tag/swagger/processor.go
  * @Description: Swagger文档后处理器，将proto @inject_tag约束注入swagger schema并剥离注释
  *
@@ -506,115 +506,45 @@ func (p *Processor) applyParameterValidate(param *swaggerParameter, validateValu
 
 // applyConstraints 将SwaggerConstraints应用到swagger属性上
 func (p *Processor) applyConstraints(prop *swaggerProperty, c *SwaggerConstraints) {
-	p.applyPropertyRangeConstraints(prop, c)
-	applyPropertyScalarConstraints(prop, c)
-	if c.Items != nil && prop.Items != nil {
-		p.applyConstraints(prop.Items, c.Items)
-	}
+	applyConstraintsToTarget(propertyTarget{prop}, c)
 }
 
-func applyPropertyScalarConstraints(prop *swaggerProperty, c *SwaggerConstraints) {
-	if c.Pattern != "" {
-		prop.Pattern = c.Pattern
-	}
-	if c.Format != "" && prop.Format == "" {
-		prop.Format = c.Format
-	}
-	if len(c.Enum) > 0 {
-		prop.Enum = enumToInterfaceSlice(c.Enum)
-	}
-	if c.MinItems != nil {
-		prop.MinItems = c.MinItems
-	}
-	if c.MaxItems != nil {
-		prop.MaxItems = c.MaxItems
-	}
-}
-
-func (p *Processor) applyPropertyRangeConstraints(prop *swaggerProperty, c *SwaggerConstraints) {
-	switch schemaConstraintKind(prop.Type) {
-	case "string":
-		applyPropertyStringRange(prop, c)
-	case "array":
-		applyPropertyArrayRange(prop, c)
-	default:
-		applyPropertyNumericRange(prop, c)
-	}
-}
-
-func applyPropertyStringRange(prop *swaggerProperty, c *SwaggerConstraints) {
-	if c.MinLength != nil {
-		prop.MinLength = c.MinLength
-	}
-	if c.MaxLength != nil {
-		prop.MaxLength = c.MaxLength
-	}
-	if c.Min != nil {
-		prop.MinLength = floatToInt64(c.Min)
-	}
-	if c.Max != nil {
-		prop.MaxLength = floatToInt64(c.Max)
-	}
-}
-
-func applyPropertyArrayRange(prop *swaggerProperty, c *SwaggerConstraints) {
-	if c.MinLength != nil {
-		prop.MinItems = c.MinLength
-	}
-	if c.MaxLength != nil {
-		prop.MaxItems = c.MaxLength
-	}
-	if c.Min != nil {
-		prop.MinItems = floatToInt64(c.Min)
-	}
-	if c.Max != nil {
-		prop.MaxItems = floatToInt64(c.Max)
-	}
-}
-
-func applyPropertyNumericRange(prop *swaggerProperty, c *SwaggerConstraints) {
-	if c.Min != nil {
-		prop.Minimum = c.Min
-	}
-	if c.Max != nil {
-		prop.Maximum = c.Max
-	}
-	if c.ExclusiveMinimum {
-		prop.ExclusiveMinimum = true
-	}
-	if c.ExclusiveMaximum {
-		prop.ExclusiveMaximum = true
-	}
-}
-
+// applyParameterConstraints 将SwaggerConstraints应用到swagger参数上
 func (p *Processor) applyParameterConstraints(param *swaggerParameter, c *SwaggerConstraints) {
-	p.applyParameterRangeConstraints(param, c)
-	applyParameterScalarConstraints(param, c)
-	if c.Items != nil && param.Items != nil {
-		p.applyConstraints(param.Items, c.Items)
+	applyConstraintsToTarget(parameterTarget{param}, c)
+}
+
+// applyConstraintsToTarget 统一将约束应用到目标（消除 Property/Parameter 重复代码）
+func applyConstraintsToTarget(target constraintTarget, c *SwaggerConstraints) {
+	applyRangeConstraints(target, c)
+	applyScalarConstraints(target, c)
+	if c.Items != nil {
+		if items := target.ItemsTarget(); items != nil {
+			applyConstraintsToTarget(items, c.Items)
+		}
 	}
 }
 
-// applyParameterScalarConstraints 应用 swagger 参数中的 scalar 约束
-func applyParameterScalarConstraints(param *swaggerParameter, c *SwaggerConstraints) {
+// applyScalarConstraints 应用标量约束（pattern/format/enum/minItems/maxItems）
+func applyScalarConstraints(target constraintTarget, c *SwaggerConstraints) {
 	if c.Pattern != "" {
-		param.Pattern = c.Pattern
+		target.SetPattern(c.Pattern)
 	}
-	if c.Format != "" && param.Format == "" {
-		param.Format = c.Format
+	if c.Format != "" {
+		target.SetFormatIfEmpty(c.Format)
 	}
 	if len(c.Enum) > 0 {
-		param.Enum = enumToInterfaceSlice(c.Enum)
+		target.SetEnum(enumToInterfaceSlice(c.Enum))
 	}
 	if c.MinItems != nil {
-		param.MinItems = c.MinItems
+		target.SetMinItems(c.MinItems)
 	}
 	if c.MaxItems != nil {
-		param.MaxItems = c.MaxItems
+		target.SetMaxItems(c.MaxItems)
 	}
 }
 
-// enumToInterfaceSlice 将枚举值转换为 interface{} 切片
+// enumToInterfaceSlice 将枚举值字符串切片转换为 interface{} 切片
 func enumToInterfaceSlice(enum []string) []interface{} {
 	enumVals := make([]interface{}, len(enum))
 	for i, e := range enum {
@@ -623,59 +553,63 @@ func enumToInterfaceSlice(enum []string) []interface{} {
 	return enumVals
 }
 
-func (p *Processor) applyParameterRangeConstraints(param *swaggerParameter, c *SwaggerConstraints) {
-	switch schemaConstraintKind(param.Type) {
+// applyRangeConstraints 根据类型应用范围约束
+func applyRangeConstraints(target constraintTarget, c *SwaggerConstraints) {
+	switch schemaConstraintKind(target.Type()) {
 	case "string":
-		applyParameterStringRange(param, c)
+		applyStringRange(target, c)
 	case "array":
-		applyParameterArrayRange(param, c)
+		applyArrayRange(target, c)
 	default:
-		applyParameterNumericRange(param, c)
+		applyNumericRange(target, c)
 	}
 }
 
-func applyParameterStringRange(param *swaggerParameter, c *SwaggerConstraints) {
+// applyStringRange 应用字符串范围约束（minLength/maxLength）
+func applyStringRange(target constraintTarget, c *SwaggerConstraints) {
 	if c.MinLength != nil {
-		param.MinLength = c.MinLength
+		target.SetMinLength(c.MinLength)
 	}
 	if c.MaxLength != nil {
-		param.MaxLength = c.MaxLength
+		target.SetMaxLength(c.MaxLength)
 	}
 	if c.Min != nil {
-		param.MinLength = floatToInt64(c.Min)
+		target.SetMinLength(floatToInt64(c.Min))
 	}
 	if c.Max != nil {
-		param.MaxLength = floatToInt64(c.Max)
+		target.SetMaxLength(floatToInt64(c.Max))
 	}
 }
 
-func applyParameterArrayRange(param *swaggerParameter, c *SwaggerConstraints) {
+// applyArrayRange 应用数组范围约束（minItems/maxItems）
+func applyArrayRange(target constraintTarget, c *SwaggerConstraints) {
 	if c.MinLength != nil {
-		param.MinItems = c.MinLength
+		target.SetMinItems(c.MinLength)
 	}
 	if c.MaxLength != nil {
-		param.MaxItems = c.MaxLength
+		target.SetMaxItems(c.MaxLength)
 	}
 	if c.Min != nil {
-		param.MinItems = floatToInt64(c.Min)
+		target.SetMinItems(floatToInt64(c.Min))
 	}
 	if c.Max != nil {
-		param.MaxItems = floatToInt64(c.Max)
+		target.SetMaxItems(floatToInt64(c.Max))
 	}
 }
 
-func applyParameterNumericRange(param *swaggerParameter, c *SwaggerConstraints) {
+// applyNumericRange 应用数值范围约束（minimum/maximum/exclusive）
+func applyNumericRange(target constraintTarget, c *SwaggerConstraints) {
 	if c.Min != nil {
-		param.Minimum = c.Min
+		target.SetMinimum(c.Min)
 	}
 	if c.Max != nil {
-		param.Maximum = c.Max
+		target.SetMaximum(c.Max)
 	}
 	if c.ExclusiveMinimum {
-		param.ExclusiveMinimum = true
+		target.SetExclusiveMinimum(true)
 	}
 	if c.ExclusiveMaximum {
-		param.ExclusiveMaximum = true
+		target.SetExclusiveMaximum(true)
 	}
 }
 

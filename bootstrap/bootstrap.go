@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-26 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2026-05-09 13:39:52
+ * @LastEditTime: 2026-05-18 23:29:31
  * @FilePath: \protoc-go-inject-tag\bootstrap\bootstrap.go
  * @Description: 命令行入口与参数解析模块，负责匹配目标文件并调度标签注入流程
  *
@@ -219,83 +219,18 @@ func runSwagger(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("必须指定 --input 或 --proto-dir 参数")
 	}
 
-	var protoFiles []string
-	var err error
-
-	if swaggerInput != "" {
-		protoFiles, err = findFiles(swaggerInput)
-		if err != nil {
-			return fmt.Errorf("查找 proto 文件失败: %w", err)
-		}
-	} else {
-		err = filepath.Walk(swaggerProto, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				return err
-			}
-			if !info.IsDir() && strings.HasSuffix(path, ".proto") {
-				protoFiles = append(protoFiles, path)
-			}
-			return nil
-		})
-		if err != nil {
-			return fmt.Errorf("遍历 proto 目录失败: %w", err)
-		}
+	protoFiles, err := collectSwaggerProtoFiles()
+	if err != nil {
+		return err
 	}
 
-	if len(protoFiles) == 0 {
-		return fmt.Errorf("没有找到匹配的 proto 文件")
-	}
-
-	if verbose {
-		fmt.Printf("找到 %d 个 proto 文件\n", len(protoFiles))
-	}
-
-	var swaggerFiles []string
-	if swaggerFile != "" {
-		swaggerFiles = []string{swaggerFile}
-	} else {
-		if swaggerProto != "" {
-			err = filepath.Walk(swaggerProto, func(path string, info os.FileInfo, err error) error {
-				if err != nil {
-					return err
-				}
-				if !info.IsDir() && (strings.HasSuffix(path, ".swagger.json") || strings.HasSuffix(path, ".swagger.yaml") || strings.HasSuffix(path, ".swagger.yml")) {
-					swaggerFiles = append(swaggerFiles, path)
-				}
-				return nil
-			})
-			if err != nil {
-				return fmt.Errorf("遍历 swagger 目录失败: %w", err)
-			}
-		} else {
-			swaggerFiles, err = findFiles(swaggerInput)
-			if err != nil {
-				return fmt.Errorf("查找 swagger 文件失败: %w", err)
-			}
-		}
-	}
-
-	if len(swaggerFiles) == 0 {
-		return fmt.Errorf("没有找到 swagger 文件")
-	}
-
-	if verbose {
-		fmt.Printf("找到 %d 个 swagger 文件\n", len(swaggerFiles))
+	swaggerFiles, err := collectSwaggerOutputFiles()
+	if err != nil {
+		return err
 	}
 
 	proc := swagger.NewProcessor(verbose)
-
-	errorCount := 0
-	for _, sf := range swaggerFiles {
-		if !strings.HasSuffix(sf, ".swagger.json") && !strings.HasSuffix(sf, ".swagger.yaml") && !strings.HasSuffix(sf, ".swagger.yml") {
-			continue
-		}
-		if err := proc.ProcessFile(sf, protoFiles); err != nil {
-			fmt.Fprintf(os.Stderr, "处理 swagger 文件失败 %s: %v\n", sf, err)
-			errorCount++
-		}
-	}
-
+	errorCount := processSwaggerFiles(proc, protoFiles, swaggerFiles)
 	if errorCount > 0 {
 		return fmt.Errorf("有 %d 个 swagger 文件处理失败", errorCount)
 	}
@@ -304,49 +239,86 @@ func runSwagger(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// collectSwaggerProtoFiles 收集 swagger 处理所需的 proto 文件
+func collectSwaggerProtoFiles() ([]string, error) {
+	if swaggerInput != "" {
+		return findFiles(swaggerInput)
+	}
+	return walkFilesByExt(swaggerProto, ".proto")
+}
+
+// collectSwaggerOutputFiles 收集 swagger 输出文件
+func collectSwaggerOutputFiles() ([]string, error) {
+	if swaggerFile != "" {
+		return []string{swaggerFile}, nil
+	}
+	if swaggerProto != "" {
+		return walkSwaggerFiles(swaggerProto)
+	}
+	return findFiles(swaggerInput)
+}
+
+// walkSwaggerFiles 遍历目录收集 swagger 文件
+func walkSwaggerFiles(root string) ([]string, error) {
+	var files []string
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() && isSwaggerExt(path) {
+			files = append(files, path)
+		}
+		return nil
+	})
+	return files, err
+}
+
+// isSwaggerExt 判断文件是否为 swagger 文件扩展名
+func isSwaggerExt(path string) bool {
+	return strings.HasSuffix(path, ".swagger.json") ||
+		strings.HasSuffix(path, ".swagger.yaml") ||
+		strings.HasSuffix(path, ".swagger.yml")
+}
+
+// walkFilesByExt 遍历目录收集指定扩展名的文件
+func walkFilesByExt(root, ext string) ([]string, error) {
+	var files []string
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() && strings.HasSuffix(path, ext) {
+			files = append(files, path)
+		}
+		return nil
+	})
+	return files, err
+}
+
+// processSwaggerFiles 批量处理 swagger 文件
+func processSwaggerFiles(proc *swagger.Processor, protoFiles, swaggerFiles []string) int {
+	errorCount := 0
+	for _, sf := range swaggerFiles {
+		if !isSwaggerExt(sf) {
+			continue
+		}
+		if err := proc.ProcessFile(sf, protoFiles); err != nil {
+			fmt.Fprintf(os.Stderr, "处理 swagger 文件失败 %s: %v\n", sf, err)
+			errorCount++
+		}
+	}
+	return errorCount
+}
+
 func runCheck(cmd *cobra.Command, args []string) error {
 	if checkInput == "" && checkProtoDir == "" {
 		return fmt.Errorf("必须指定 --input 或 --proto-dir 参数")
 	}
 
-	scanRoot := checkProtoDir
-	if scanRoot == "" {
-		scanRoot = checkInput
-	}
-
-	var protoFiles, swaggerFiles []string
-	var err error
-
-	if info, statErr := os.Stat(scanRoot); statErr == nil && info.IsDir() {
-		base, absErr := filepath.Abs(scanRoot)
-		if absErr != nil {
-			return absErr
-		}
-		protoFiles, swaggerFiles, err = swagger.CollectProtoSwaggerFiles(base)
-		if err != nil {
-			return fmt.Errorf("遍历目录失败: %w", err)
-		}
-	} else {
-		protoFiles, err = findFiles(checkInput)
-		if err != nil {
-			return fmt.Errorf("查找 proto 文件失败: %w", err)
-		}
-		if len(protoFiles) == 0 {
-			return fmt.Errorf("没有找到匹配的 proto 文件: %s", checkInput)
-		}
-		repoRoot := findCheckBaseDir(filepath.Dir(protoFiles[0]))
-		protoFiles, swaggerFiles, err = swagger.CollectProtoSwaggerFiles(filepath.Join(repoRoot, "proto"))
-		if err != nil {
-			return fmt.Errorf("遍历 proto 目录失败: %w", err)
-		}
-		scanRoot = repoRoot
-	}
-
-	if len(protoFiles) == 0 {
-		return fmt.Errorf("没有找到 proto 文件")
-	}
-	if len(swaggerFiles) == 0 {
-		return fmt.Errorf("没有找到 swagger 文件")
+	scanRoot := resolveCheckScanRoot()
+	protoFiles, swaggerFiles, err := collectCheckFiles(scanRoot)
+	if err != nil {
+		return err
 	}
 
 	if verbose {
@@ -371,6 +343,52 @@ func runCheck(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// resolveCheckScanRoot 确定检查的扫描根目录
+func resolveCheckScanRoot() string {
+	if checkProtoDir != "" {
+		return checkProtoDir
+	}
+	return checkInput
+}
+
+// collectCheckFiles 收集检查所需的 proto 和 swagger 文件
+func collectCheckFiles(scanRoot string) ([]string, []string, error) {
+	if info, err := os.Stat(scanRoot); err == nil && info.IsDir() {
+		return collectCheckFilesFromDir(scanRoot)
+	}
+	return collectCheckFilesFromGlob()
+}
+
+// collectCheckFilesFromDir 从目录收集检查文件
+func collectCheckFilesFromDir(scanRoot string) ([]string, []string, error) {
+	base, err := filepath.Abs(scanRoot)
+	if err != nil {
+		return nil, nil, err
+	}
+	protoFiles, swaggerFiles, err := swagger.CollectProtoSwaggerFiles(base)
+	if err != nil {
+		return nil, nil, fmt.Errorf("遍历目录失败: %w", err)
+	}
+	return protoFiles, swaggerFiles, nil
+}
+
+// collectCheckFilesFromGlob 从 glob 模式收集检查文件
+func collectCheckFilesFromGlob() ([]string, []string, error) {
+	protoFiles, err := findFiles(checkInput)
+	if err != nil {
+		return nil, nil, fmt.Errorf("查找 proto 文件失败: %w", err)
+	}
+	if len(protoFiles) == 0 {
+		return nil, nil, fmt.Errorf("没有找到匹配的 proto 文件: %s", checkInput)
+	}
+	repoRoot := findCheckBaseDir(filepath.Dir(protoFiles[0]))
+	protoFiles, swaggerFiles, err := swagger.CollectProtoSwaggerFiles(filepath.Join(repoRoot, "proto"))
+	if err != nil {
+		return nil, nil, fmt.Errorf("遍历 proto 目录失败: %w", err)
+	}
+	return protoFiles, swaggerFiles, nil
+}
+
 func findCheckBaseDir(start string) string {
 	dir := start
 	if dir == "" {
@@ -393,19 +411,6 @@ func findCheckBaseDir(start string) string {
 		dir = parent
 	}
 	return start
-}
-
-func uniqueStrings(values []string) []string {
-	seen := make(map[string]bool, len(values))
-	out := make([]string, 0, len(values))
-	for _, v := range values {
-		if v == "" || seen[v] {
-			continue
-		}
-		seen[v] = true
-		out = append(out, v)
-	}
-	return out
 }
 
 // findFiles 查找匹配的文件，支持 ** 递归匹配

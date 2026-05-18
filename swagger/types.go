@@ -423,3 +423,73 @@ type swaggerResponse struct {
 	Examples    map[string]interface{} `json:"examples,omitempty" yaml:"examples,omitempty"`
 	Headers     map[string]interface{} `json:"headers,omitempty" yaml:"headers,omitempty"`
 }
+
+// constraintTarget 约束应用目标接口，统一 swaggerProperty 和 swaggerParameter 的约束设置
+// 用于消除 Property/Parameter 约束应用的重复代码
+type constraintTarget interface {
+	Type() string
+	SetPattern(string)
+	SetFormatIfEmpty(string)
+	SetEnum([]interface{})
+	SetMinItems(*int64)
+	SetMaxItems(*int64)
+	SetMinLength(*int64)
+	SetMaxLength(*int64)
+	SetMinimum(*float64)
+	SetMaximum(*float64)
+	SetExclusiveMinimum(bool)
+	SetExclusiveMaximum(bool)
+	ItemsTarget() constraintTarget
+}
+
+// propertyTarget swaggerProperty 的约束目标适配器
+type propertyTarget struct{ prop *swaggerProperty }
+
+func (t propertyTarget) Type() string        { return t.prop.Type }
+func (t propertyTarget) SetPattern(v string) { t.prop.Pattern = v }
+func (t propertyTarget) SetFormatIfEmpty(v string) {
+	if t.prop.Format == "" {
+		t.prop.Format = v
+	}
+}
+func (t propertyTarget) SetEnum(v []interface{})    { t.prop.Enum = v }
+func (t propertyTarget) SetMinItems(v *int64)       { t.prop.MinItems = v }
+func (t propertyTarget) SetMaxItems(v *int64)       { t.prop.MaxItems = v }
+func (t propertyTarget) SetMinLength(v *int64)      { t.prop.MinLength = v }
+func (t propertyTarget) SetMaxLength(v *int64)      { t.prop.MaxLength = v }
+func (t propertyTarget) SetMinimum(v *float64)      { t.prop.Minimum = v }
+func (t propertyTarget) SetMaximum(v *float64)      { t.prop.Maximum = v }
+func (t propertyTarget) SetExclusiveMinimum(v bool) { t.prop.ExclusiveMinimum = v }
+func (t propertyTarget) SetExclusiveMaximum(v bool) { t.prop.ExclusiveMaximum = v }
+func (t propertyTarget) ItemsTarget() constraintTarget {
+	if t.prop.Items != nil {
+		return propertyTarget{t.prop.Items}
+	}
+	return nil
+}
+
+// parameterTarget swaggerParameter 的约束目标适配器
+type parameterTarget struct{ param *swaggerParameter }
+
+func (t parameterTarget) Type() string        { return t.param.Type }
+func (t parameterTarget) SetPattern(v string) { t.param.Pattern = v }
+func (t parameterTarget) SetFormatIfEmpty(v string) {
+	if t.param.Format == "" {
+		t.param.Format = v
+	}
+}
+func (t parameterTarget) SetEnum(v []interface{})    { t.param.Enum = v }
+func (t parameterTarget) SetMinItems(v *int64)       { t.param.MinItems = v }
+func (t parameterTarget) SetMaxItems(v *int64)       { t.param.MaxItems = v }
+func (t parameterTarget) SetMinLength(v *int64)      { t.param.MinLength = v }
+func (t parameterTarget) SetMaxLength(v *int64)      { t.param.MaxLength = v }
+func (t parameterTarget) SetMinimum(v *float64)      { t.param.Minimum = v }
+func (t parameterTarget) SetMaximum(v *float64)      { t.param.Maximum = v }
+func (t parameterTarget) SetExclusiveMinimum(v bool) { t.param.ExclusiveMinimum = v }
+func (t parameterTarget) SetExclusiveMaximum(v bool) { t.param.ExclusiveMaximum = v }
+func (t parameterTarget) ItemsTarget() constraintTarget {
+	if t.param.Items != nil {
+		return propertyTarget{t.param.Items}
+	}
+	return nil
+}

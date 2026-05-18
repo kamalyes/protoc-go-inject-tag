@@ -1,3 +1,20 @@
+/*
+ * @Author: kamalyes 501893067@qq.com
+ * @Date: 2025-11-26 00:00:00
+ * @LastEditors: kamalyes 501893067@qq.com
+ * @LastEditTime: 2026-05-18 23:32:17
+ * @FilePath: \protoc-go-inject-tag\injector\injector.go
+ * @Description: Go结构体标签注入器，将proto @gotags注解注入到.pb.go文件的结构体字段中
+ *
+ * 处理流程：
+ * 1. 读取 .pb.go 文件内容
+ * 2. 使用正则匹配结构体字段行尾的 @gotags/@inject_tags 注释
+ * 3. 解析现有标签和新标签，合并后生成新的字段定义
+ * 4. 可选移除 @gotags 注释、格式化代码
+ * 5. 写回修改后的文件
+ *
+ * Copyright (c) 2025 by kamalyes, All Rights Reserved.
+ */
 package injector
 
 import (
@@ -13,23 +30,23 @@ import (
 
 // Options 注入器选项
 type Options struct {
-	Verbose        bool // 详细输出
+	Verbose        bool // 详细输出模式
 	RemoveComments bool // 移除 @gotags 注释
 	FormatCode     bool // 格式化代码
-	DryRun         bool // 试运行
+	DryRun         bool // 试运行模式（不实际修改文件）
 }
 
-// Injector 标签注入器
+// Injector 标签注入器，负责将 @gotags 注解注入到 Go 结构体字段标签中
 type Injector struct {
 	opts Options
 }
 
-// New 创建新的注入器
+// New 创建新的标签注入器
 func New(opts Options) *Injector {
 	return &Injector{opts: opts}
 }
 
-// ProcessFile 处理单个文件
+// ProcessFile 处理单个 .pb.go 文件：注入标签 + 可选清理注释 + 可选格式化
 func (inj *Injector) ProcessFile(filename string) error {
 	// 读取文件
 	content, err := os.ReadFile(filename)
