@@ -1318,3 +1318,64 @@ service SystemService {
 	assert.False(t, params["name"], "不应套用 DictGroupCreateRequest 的 name required")
 	assert.False(t, params["type"])
 }
+
+func TestProcessor_ProcessFile_NestedQueryOmitRequired(t *testing.T) {
+	protoContent := `syntax = "proto3";
+package system;
+
+message Paging {
+  int32 page = 1;
+  int32 size = 2;
+  int32 total = 3;  // @inject_tag: swagger:"omitrequired"
+}
+
+message ListRequest {
+  Paging page_request = 1;  // @inject_tag: validate:"required"
+}
+
+service SystemService {
+  rpc List(ListRequest) returns (ListResponse) {
+    option (google.api.http) = { get: "/v1/list" };
+  }
+}
+`
+	protoPath := writeTempProto(t, protoContent)
+	swaggerPath := writeSwaggerYAML(t, swaggerDoc{
+		Paths: newPaths(
+			"/v1/list", pathItem(map[string]*swaggerOperation{
+				"get": {
+					OperationId: "SystemService_List",
+					Responses: map[string]*swaggerResponse{
+						"200": {Description: "ok"},
+					},
+					Parameters: []*swaggerParameter{
+						{Name: "page_request.page", In: "query", Type: "integer", Required: true},
+						{Name: "page_request.size", In: "query", Type: "integer", Required: true},
+						{Name: "page_request.total", In: "query", Type: "integer", Required: true},
+					},
+				},
+			}),
+		),
+	})
+
+	proc := NewProcessor(false)
+	require.NoError(t, proc.ProcessFile(swaggerPath, []string{protoPath}))
+
+	data, err := os.ReadFile(swaggerPath)
+	require.NoError(t, err)
+
+	var doc swaggerDoc
+	require.NoError(t, yaml.Unmarshal(data, &doc))
+	item := doc.Paths.GetPathItem("/v1/list")
+	require.NotNil(t, item)
+	require.NotNil(t, item.Get)
+
+	params := make(map[string]bool)
+	for _, param := range item.Get.Parameters {
+		params[param.Name] = param.Required
+	}
+
+	assert.True(t, params["page_request.page"])
+	assert.True(t, params["page_request.size"])
+	assert.False(t, params["page_request.total"], "total 带 swagger:omitrequired 不应继承父级 required")
+}

@@ -121,10 +121,22 @@ protoc-go-inject-tag -i pb/*.pb.go -d
 
 1. 解析 `.proto` 文件中的 `@inject_tag`/`@gotags` 注解，提取 `validate` 标签
 2. 读取 swagger YAML/JSON 文件
-3. 遍历 `definitions`，将 validate 约束转换为对应的 swagger schema 字段
-4. 从 `description` 和 `title` 中剥离 `@inject_tag`/`@gotags`  文本
-5. 清理未在 `paths` 中引用的顶层 `tags`
-6. 写回修改后的 swagger 文件（保持原始格式）
+3. 按 RPC `operationId` 定位 request message，仅在该 message 上匹配 query/path 参数的 `validate`（避免跨 message 同名字段误标 `required`）
+4. 嵌套 message 展开为 `parent.child` query 参数时，父字段 `validate:"required"` 会传播到子字段；子字段可用 `swagger:"omitrequired"` 排除传播
+5. 遍历 `definitions`，将 validate 约束转换为对应的 swagger schema 字段
+6. 从 `description` 和 `title` 中剥离 `@inject_tag`/`@gotags`  文本
+7. 清理未在 `paths` 中引用的顶层 `tags`
+8. 写回修改后的 swagger 文件（保持原始格式）
+
+**嵌套 query 与 `swagger:"omitrequired"`：**
+
+当 request 含 `common.Paging page_request` 且标注 `validate:"required"` 时，OpenAPI 会展开为 `page_request.page`、`page_request.size`、`page_request.total` 等 query 参数。分页结构里 `total` 通常仅用于响应，不应作为请求必填。在子 message 字段上标注：
+
+```protobuf
+int32 total = 3;  // @inject_tag: swagger:"omitrequired"
+```
+
+则 `page_request.total` 不会继承父级 `page_request` 的 `required`，而 `page`/`size` 仍会继承。
 
 **模块结构：**
 

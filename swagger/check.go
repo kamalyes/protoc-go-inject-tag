@@ -57,14 +57,14 @@ func RunCheck(opts CheckOptions) (*CheckReport, error) {
 		return nil, err
 	}
 
-	messages, operations, err := buildCheckIndexes(opts.ProtoFiles)
+	messages, operations, fieldIndex, err := buildCheckIndexes(opts.ProtoFiles)
 	if err != nil {
 		return nil, err
 	}
 
 	report := &CheckReport{SwaggerFileCount: len(opts.SwaggerFiles)}
 	for _, sf := range opts.SwaggerFiles {
-		audit, err := AuditSwaggerFile(sf, messages, operations)
+		audit, err := AuditSwaggerFile(sf, messages, operations, fieldIndex)
 		if err != nil {
 			report.SkippedSwagger = append(report.SkippedSwagger, SkippedSwaggerEntry{File: sf, Error: err.Error()})
 			continue
@@ -84,16 +84,24 @@ func validateCheckOptions(opts CheckOptions) error {
 	return nil
 }
 
-func buildCheckIndexes(protoFiles []string) (map[string]map[string]string, map[string]ProtoRPC, error) {
-	messages, err := BuildMessageValidateIndex(protoFiles)
+func buildCheckIndexes(protoFiles []string) (map[string]map[string]string, map[string]ProtoRPC, *protoFieldIndex, error) {
+	expandedProtos, err := ExpandProtoFilesWithImports(protoFiles)
 	if err != nil {
-		return nil, nil, fmt.Errorf("解析 proto 失败: %w", err)
+		return nil, nil, nil, err
 	}
-	operations, err := BuildOperationRequestIndex(protoFiles)
+	messages, err := BuildMessageValidateIndex(expandedProtos)
 	if err != nil {
-		return nil, nil, fmt.Errorf("解析 RPC 失败: %w", err)
+		return nil, nil, nil, fmt.Errorf("解析 proto 失败: %w", err)
 	}
-	return messages, operations, nil
+	operations, err := BuildOperationRequestIndex(expandedProtos)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("解析 RPC 失败: %w", err)
+	}
+	fieldIndex, err := BuildProtoFieldIndex(expandedProtos)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("构建 proto 字段索引失败: %w", err)
+	}
+	return messages, operations, fieldIndex, nil
 }
 
 func mergeAuditIntoReport(report *CheckReport, audit AuditIssue) {

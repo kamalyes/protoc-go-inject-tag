@@ -36,7 +36,8 @@ type Processor struct {
 
 // swaggerTagIndex swagger标签索引，按 message schema 查找字段标签
 type swaggerTagIndex struct {
-	schemas map[string]map[string]FieldTag
+	schemas    map[string]map[string]FieldTag
+	fieldIndex *protoFieldIndex
 }
 
 // NewProcessor 创建swagger后处理器
@@ -50,13 +51,22 @@ func (p *Processor) ProcessFile(swaggerFile string, protoFiles []string) error {
 		fmt.Printf("📖 解析 proto 文件的 @inject_tag 注解...\n")
 	}
 
-	protoTags, err := p.collectProtoTags(protoFiles)
+	expandedProtos, err := ExpandProtoFilesWithImports(protoFiles)
+	if err != nil {
+		return fmt.Errorf("展开 proto import 失败: %w", err)
+	}
+
+	protoTags, err := p.collectProtoTags(expandedProtos)
 	if err != nil {
 		return err
 	}
-	tagIndex := newSwaggerTagIndex(protoTags)
+	fieldIndex, err := BuildProtoFieldIndex(expandedProtos)
+	if err != nil {
+		return fmt.Errorf("构建 proto 字段索引失败: %w", err)
+	}
+	tagIndex := newSwaggerTagIndex(protoTags, fieldIndex)
 
-	operationRequests, err := BuildOperationRequestIndex(protoFiles)
+	operationRequests, err := BuildOperationRequestIndex(expandedProtos)
 	if err != nil {
 		return fmt.Errorf("解析 proto RPC 失败: %w", err)
 	}
@@ -208,9 +218,10 @@ func (p *Processor) applyPropertyValidate(
 }
 
 // newSwaggerTagIndex 创建 swagger 标签索引
-func newSwaggerTagIndex(tags []ProtoFieldTags) *swaggerTagIndex {
+func newSwaggerTagIndex(tags []ProtoFieldTags, fieldIndex *protoFieldIndex) *swaggerTagIndex {
 	index := &swaggerTagIndex{
-		schemas: make(map[string]map[string]FieldTag),
+		schemas:    make(map[string]map[string]FieldTag),
+		fieldIndex: fieldIndex,
 	}
 	for _, tag := range tags {
 		if tag.Tags.Validate == "" {
@@ -321,6 +332,9 @@ func validateForParameter(index *swaggerTagIndex, rpc ProtoRPC, paramName string
 }
 
 func validateForNestedParameter(index *swaggerTagIndex, rpc ProtoRPC, parent, child, fullName string) string {
+	if index != nil && index.fieldIndex != nil && index.fieldIndex.childOmitsNestedRequired(rpc.RequestType, parent, child) {
+		return index.fieldIndex.nestedChildValidate(rpc.RequestType, parent, child)
+	}
 	if parentTag, ok := index.lookupMessageField(rpc.PackageName, rpc.RequestType, parent); ok {
 		if v := nestedParentValidate(parentTag, child); v != "" {
 			return v
@@ -333,11 +347,8 @@ func validateForNestedParameter(index *swaggerTagIndex, rpc ProtoRPC, parent, ch
 }
 
 func nestedParentValidate(parentTag FieldTag, child string) string {
-	if parentTag.Validate == "" {
+	if parentTag.Validate == "" || child == "" {
 		return ""
-	}
-	if child == "" {
-		return parentTag.Validate
 	}
 	parentConstraints := ParseValidateToSwagger(parentTag.Validate)
 	if parentConstraints != nil && parentConstraints.Required {

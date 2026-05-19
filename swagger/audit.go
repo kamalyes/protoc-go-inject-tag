@@ -68,35 +68,35 @@ func mergeProtoFieldTags(index map[string]map[string]string, tags []ProtoFieldTa
 }
 
 // AuditSwaggerFile 对比单个 swagger 文件与 proto 索引，检查 required 一致性
-func AuditSwaggerFile(swaggerFile string, messages map[string]map[string]string, operations map[string]ProtoRPC) (AuditIssue, error) {
+func AuditSwaggerFile(swaggerFile string, messages map[string]map[string]string, operations map[string]ProtoRPC, fieldIndex *protoFieldIndex) (AuditIssue, error) {
 	doc, _, err := ReadSwaggerFile(swaggerFile)
 	if err != nil {
 		return AuditIssue{}, err
 	}
 
 	var result AuditIssue
-	auditPathParameters(doc, swaggerFile, messages, operations, &result)
+	auditPathParameters(doc, swaggerFile, messages, operations, fieldIndex, &result)
 	auditDefinitions(doc, swaggerFile, messages, &result)
 	return result, nil
 }
 
 // auditPathParameters 审计路径参数的 required 一致性
-func auditPathParameters(doc *swaggerDoc, swaggerFile string, messages map[string]map[string]string, operations map[string]ProtoRPC, result *AuditIssue) {
+func auditPathParameters(doc *swaggerDoc, swaggerFile string, messages map[string]map[string]string, operations map[string]ProtoRPC, fieldIndex *protoFieldIndex, result *AuditIssue) {
 	if doc.Paths == nil {
 		return
 	}
 	for _, pd := range *doc.Paths {
-		auditPathItem(pd.PathItemObject, swaggerFile, messages, operations, result)
+		auditPathItem(pd.PathItemObject, swaggerFile, messages, operations, fieldIndex, result)
 	}
 }
 
 // auditPathItem 审计单个路径项下的所有操作
-func auditPathItem(item *swaggerPathItemObject, swaggerFile string, messages map[string]map[string]string, operations map[string]ProtoRPC, result *AuditIssue) {
+func auditPathItem(item *swaggerPathItemObject, swaggerFile string, messages map[string]map[string]string, operations map[string]ProtoRPC, fieldIndex *protoFieldIndex, result *AuditIssue) {
 	if item == nil {
 		return
 	}
 	for _, op := range pathItemOperations(item) {
-		auditOperation(op, swaggerFile, messages, operations, result)
+		auditOperation(op, swaggerFile, messages, operations, fieldIndex, result)
 	}
 }
 
@@ -106,7 +106,7 @@ func pathItemOperations(item *swaggerPathItemObject) []*swaggerOperation {
 }
 
 // auditOperation 审计单个操作的参数 required 一致性
-func auditOperation(op *swaggerOperation, swaggerFile string, messages map[string]map[string]string, operations map[string]ProtoRPC, result *AuditIssue) {
+func auditOperation(op *swaggerOperation, swaggerFile string, messages map[string]map[string]string, operations map[string]ProtoRPC, fieldIndex *protoFieldIndex, result *AuditIssue) {
 	if op == nil {
 		return
 	}
@@ -116,16 +116,16 @@ func auditOperation(op *swaggerOperation, swaggerFile string, messages map[strin
 	}
 	fields := messages[rpc.RequestType]
 	for _, param := range op.Parameters {
-		maybeRecordParameterMismatch(result, swaggerFile, op.OperationId, rpc.RequestType, fields, param)
+		maybeRecordParameterMismatch(result, swaggerFile, op.OperationId, rpc.RequestType, fields, fieldIndex, param)
 	}
 }
 
 // maybeRecordParameterMismatch 检查参数的 required 状态是否与 proto 一致，不一致则记录
-func maybeRecordParameterMismatch(result *AuditIssue, swaggerFile, operationID, requestType string, fields map[string]string, param *swaggerParameter) {
+func maybeRecordParameterMismatch(result *AuditIssue, swaggerFile, operationID, requestType string, fields map[string]string, fieldIndex *protoFieldIndex, param *swaggerParameter) {
 	if !shouldAuditParameter(param) {
 		return
 	}
-	expected := expectedParamRequired(fields, param.Name)
+	expected := expectedParamRequired(fields, fieldIndex, requestType, param.Name)
 	if param.Required == expected {
 		return
 	}
@@ -210,14 +210,22 @@ func maybeRecordDefinitionMismatch(result *AuditIssue, swaggerFile, defName, fie
 }
 
 // expectedParamRequired 根据 proto validate 规则判断参数是否应为 required
-func expectedParamRequired(fields map[string]string, paramName string) bool {
-	if fields == nil {
+func expectedParamRequired(fields map[string]string, fieldIndex *protoFieldIndex, requestType, paramName string) bool {
+	if idx := strings.Index(paramName, "."); idx >= 0 {
+		parent := paramName[:idx]
+		child := paramName[idx+1:]
+		if fieldIndex != nil && fieldIndex.childOmitsNestedRequired(requestType, parent, child) {
+			return hasValidateRequired(fieldIndex.nestedChildValidate(requestType, parent, child))
+		}
+		if fields != nil {
+			return hasValidateRequired(fields[parent])
+		}
 		return false
 	}
-	if idx := strings.Index(paramName, "."); idx >= 0 {
-		return hasValidateRequired(fields[paramName[:idx]])
+	if fields != nil {
+		return hasValidateRequired(fields[paramName])
 	}
-	return hasValidateRequired(fields[paramName])
+	return false
 }
 
 // lookupFieldValidate 查找字段的 validate 规则值

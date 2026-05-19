@@ -34,8 +34,9 @@ import (
 
 // FieldTag 字段的Go标签信息
 type FieldTag struct {
-	Validate string // validate标签值，如 "required,min=3,max=50"
-	GoTags   string // 完整的原始标签字符串
+	Validate             string // validate标签值，如 "required,min=3,max=50"
+	GoTags               string // 完整的原始标签字符串
+	SwaggerOmitRequired   bool   // swagger:"omitrequired" 时不继承父 message 字段的 required 到 query 子参数
 }
 
 // ProtoFieldTags 从proto文件解析出的单个字段标签信息
@@ -43,6 +44,7 @@ type ProtoFieldTags struct {
 	PackageName string
 	MessageName string // proto message名称
 	FieldName   string // 字段名称（snake_case）
+	FieldType   string // 字段类型，如 common.Paging、int32
 	JSONName    string
 	Tags        FieldTag // 解析后的标签
 }
@@ -102,14 +104,14 @@ func shortTypeName(typeName string) string {
 
 // protoFieldParseState 解析 proto 文件中 message/field 标签的状态
 type protoFieldParseState struct {
-	result       []ProtoFieldTags
+	allFields    []ProtoFieldTags
 	packageName  string
 	currentMsg   string
 	msgBodyDepth int
 }
 
-// ParseProtoFile 解析proto文件，提取所有带@inject_tag注解的字段
-func ParseProtoFile(filename string) ([]ProtoFieldTags, error) {
+// ParseProtoAllFields 解析 proto 文件中 message 的全部字段（含类型与可选 @inject_tag）
+func ParseProtoAllFields(filename string) ([]ProtoFieldTags, error) {
 	f, err := os.Open(filename)
 	if err != nil {
 		return nil, err
@@ -121,7 +123,22 @@ func ParseProtoFile(filename string) ([]ProtoFieldTags, error) {
 	for scanner.Scan() {
 		state.processLine(scanner.Text())
 	}
-	return state.result, scanner.Err()
+	return state.allFields, scanner.Err()
+}
+
+// ParseProtoFile 解析proto文件，提取所有带@inject_tag注解的字段
+func ParseProtoFile(filename string) ([]ProtoFieldTags, error) {
+	all, err := ParseProtoAllFields(filename)
+	if err != nil {
+		return nil, err
+	}
+	var tagged []ProtoFieldTags
+	for _, f := range all {
+		if f.Tags.GoTags != "" {
+			tagged = append(tagged, f)
+		}
+	}
+	return tagged, nil
 }
 
 // processLine 处理一行 proto 字段定义
@@ -141,7 +158,7 @@ func (s *protoFieldParseState) processLine(line string) {
 	if s.currentMsg == "" {
 		return
 	}
-	s.tryAppendFieldTag(line)
+	s.tryRecordField(line)
 }
 
 // tryPackage 尝试解析 proto 包定义
@@ -173,34 +190,51 @@ func (s *protoFieldParseState) updateMessageDepth(trimmed string) {
 	}
 }
 
-// tryAppendFieldTag 尝试从字段行中提取 @inject_tag 注解
-func (s *protoFieldParseState) tryAppendFieldTag(line string) {
+// tryRecordField 记录 message 内字段定义（含类型；有 @inject_tag 时一并解析）
+func (s *protoFieldParseState) tryRecordField(line string) {
+	codePart := line
 	tagLocs := injectTagRegexp.FindAllStringIndex(line, -1)
-	if len(tagLocs) == 0 {
-		return
+	if len(tagLocs) > 0 {
+		codePart = line[:tagLocs[0][0]]
 	}
-	codePart := line[:tagLocs[0][0]]
 	fieldName := extractFieldName(codePart)
 	if fieldName == "" {
 		return
 	}
-	s.result = append(s.result, ProtoFieldTags{
+	field := ProtoFieldTags{
 		PackageName: s.packageName,
 		MessageName: s.currentMsg,
 		FieldName:   fieldName,
+		FieldType:   extractFieldType(codePart),
 		JSONName:    extractProtoJSONName(codePart),
-		Tags:        buildFieldTagFromLine(line, tagLocs),
-	})
+	}
+	if len(tagLocs) > 0 {
+		field.Tags = buildFieldTagFromLine(line, tagLocs)
+	}
+	s.allFields = append(s.allFields, field)
 }
 
 // buildFieldTagFromLine 从一行proto字段定义中构建 FieldTag 结构体
 func buildFieldTagFromLine(line string, tagLocs [][]int) FieldTag {
 	mergedTagStr := mergeInjectTagValues(line, tagLocs)
 	tags := FieldTag{GoTags: mergedTagStr}
-	if v, ok := parseGoTagString(mergedTagStr)["validate"]; ok {
+	parts := parseGoTagString(mergedTagStr)
+	if v, ok := parts["validate"]; ok {
 		tags.Validate = v
 	}
+	if v, ok := parts["swagger"]; ok {
+		tags.SwaggerOmitRequired = isSwaggerOmitToken(v)
+	}
 	return tags
+}
+
+func isSwaggerOmitToken(value string) bool {
+	switch strings.Trim(strings.TrimSpace(value), `"`) {
+	case "omitrequired", "-", "ignore", "skip":
+		return true
+	default:
+		return false
+	}
 }
 
 // mergeInjectTagValues 合并同一行中多个 @inject_tag 注解的值
@@ -260,6 +294,43 @@ func extractFieldName(line string) string {
 	}
 
 	return fields[len(fields)-1]
+}
+
+// extractFieldType 从 proto 字段定义行提取类型名（如 common.Paging、int32）
+func extractFieldType(line string) string {
+	line = strings.TrimSpace(line)
+	if line == "" || strings.HasPrefix(line, "//") {
+		return ""
+	}
+	if idx := strings.Index(line, "//"); idx >= 0 {
+		line = strings.TrimSpace(line[:idx])
+	}
+	line = strings.TrimRight(line, ";")
+	line = strings.TrimSpace(line)
+
+	eqIdx := strings.Index(line, "=")
+	if eqIdx < 0 {
+		return ""
+	}
+	beforeEq := strings.TrimSpace(line[:eqIdx])
+	parts := strings.Fields(beforeEq)
+	if len(parts) < 2 {
+		return ""
+	}
+	typeParts := parts[:len(parts)-1]
+	for len(typeParts) > 0 && isProtoFieldModifier(typeParts[0]) {
+		typeParts = typeParts[1:]
+	}
+	return strings.Join(typeParts, " ")
+}
+
+func isProtoFieldModifier(word string) bool {
+	switch word {
+	case "repeated", "optional", "required":
+		return true
+	default:
+		return strings.HasPrefix(word, "map<")
+	}
 }
 
 // extractProtoJSONName 从字段行中提取 json_name 选项值
