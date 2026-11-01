@@ -34,9 +34,9 @@ import (
 
 // FieldTag 字段的Go标签信息
 type FieldTag struct {
-	Validate             string // validate标签值，如 "required,min=3,max=50"
-	GoTags               string // 完整的原始标签字符串
-	SwaggerOmitRequired   bool   // swagger:"omitrequired" 时不继承父 message 字段的 required 到 query 子参数
+	Validate            string // validate标签值，如 "required,min=3,max=50"
+	GoTags              string // 完整的原始标签字符串
+	SwaggerOmitRequired bool   // swagger:"omitrequired" 时不继承父 message 字段的 required 到 query 子参数
 }
 
 // ProtoFieldTags 从proto文件解析出的单个字段标签信息
@@ -65,9 +65,9 @@ type ProtoRPC struct {
 
 var (
 	// injectTagRegexp 匹配行内所有 @inject_tag/@gotags/@inject_tags 注解
-	injectTagRegexp   = regexp.MustCompile(`@(?:inject_tag|gotags?|inject_tags?):\s*`)
-	serviceLineRegexp = regexp.MustCompile(`^service\s+(\w+)\s*\{`)
-	rpcLineRegexp     = regexp.MustCompile(`^rpc\s+(\w+)\s*\(\s*([\w.]+)\s*\)\s*returns\s*\(\s*([\w.]+)\s*\)`)
+	injectTagRegexp     = regexp.MustCompile(`@(?:inject_tag|gotags?|inject_tags?):\s*`)
+	serviceLineRegexp   = regexp.MustCompile(`^service\s+(\w+)\s*\{`)
+	rpcLineRegexp       = regexp.MustCompile(`^rpc\s+(\w+)\s*\(\s*([\w.]+)\s*\)\s*returns\s*\(\s*([\w.]+)\s*\)`)
 	protoJSONNameRegexp = regexp.MustCompile(`json_name\s*=\s*"([^"]+)"`)
 )
 
